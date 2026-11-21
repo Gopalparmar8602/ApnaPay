@@ -1,0 +1,349 @@
+{
+	"info": {
+		"_postman_id": "apnapay-digital-land-apis-v1",
+		"name": "ApnaPay - Digital Land APIs",
+		"description": "Postman Collection for ApnaPay Digital Land Investment & Fractional Ownership APIs. Includes all 7 endpoints, authentication setup, and automatic token management.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{jwt_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "0. Customer Login (Get JWT Token)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const jsonData = pm.response.json();",
+							"if (jsonData.token || (jsonData.data && jsonData.data.token)) {",
+							"    const token = jsonData.token || jsonData.data.token;",
+							"    pm.environment.set('jwt_token', token);",
+							"    pm.collectionVariables.set('jwt_token', token);",
+							"    console.log('JWT Token successfully set!');",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"identifier\": \"test@example.com\",\n  \"password\": \"YourPassword@123\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/v1/auth/login",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"auth",
+						"login"
+					]
+				},
+				"description": "Authenticate user and automatically store the JWT Bearer token into collection variable `jwt_token`."
+			},
+			"response": []
+		},
+		{
+			"name": "1. GET /api/land/projects (All Land Projects)",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/land/projects?page=1&limit=10&status=active&search=",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"land",
+						"projects"
+					],
+					"query": [
+						{
+							"key": "page",
+							"value": "1",
+							"description": "Page number (defaults to 1)"
+						},
+						{
+							"key": "limit",
+							"value": "10",
+							"description": "Results per page (max 100)"
+						},
+						{
+							"key": "status",
+							"value": "active",
+							"description": "Filter by status: active, completed, or all"
+						},
+						{
+							"key": "search",
+							"value": "",
+							"description": "Search by project name or location keyword"
+						}
+					]
+				},
+				"description": "Public API to retrieve all available digital land projects with pricing, available units, and pagination metadata."
+			},
+			"response": []
+		},
+		{
+			"name": "2. GET /api/land/projects/:id (Specific Project Details)",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/land/projects/1",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"land",
+						"projects",
+						"1"
+					]
+				},
+				"description": "Public API to get specific land project details including total units, available units, unit price, and latest official valuation."
+			},
+			"response": []
+		},
+		{
+			"name": "3. GET /api/land/holdings (User Land Holdings)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/land/holdings?page=1&limit=10",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"land",
+						"holdings"
+					],
+					"query": [
+						{
+							"key": "page",
+							"value": "1",
+							"description": "Page number"
+						},
+						{
+							"key": "limit",
+							"value": "10",
+							"description": "Holdings per page"
+						}
+					]
+				},
+				"description": "Protected API (requires JWT Bearer token). Returns logged-in user's digital land holdings, total invested amount, current portfolio valuation, and unrealized gain/loss."
+			},
+			"response": []
+		},
+		{
+			"name": "4. POST /api/land/orders (Create Land Order Request)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const jsonData = pm.response.json();",
+							"if (jsonData.data && jsonData.data.orderId) {",
+							"    pm.environment.set('order_id', jsonData.data.orderId);",
+							"    pm.collectionVariables.set('order_id', jsonData.data.orderId);",
+							"    pm.environment.set('order_reference', jsonData.data.orderReference);",
+							"    pm.collectionVariables.set('order_reference', jsonData.data.orderReference);",
+							"    console.log('Saved orderId:', jsonData.data.orderId, 'and orderReference:', jsonData.data.orderReference);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"projectId\": 1,\n  \"units\": 2.5,\n  \"notes\": \"Purchase request for 2.5 sq.yd parcel in Apna Green Tech Park\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/land/orders",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"land",
+						"orders"
+					]
+				},
+				"description": "Protected API. Creates a land purchase order request. The backend calculates totalAmount securely from project pricePerUnit, validates available units, records pending transaction, and generates unique orderReference."
+			},
+			"response": []
+		},
+		{
+			"name": "5. GET /api/land/orders/:id (Specific Order Status)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/land/orders/{{order_id}}",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"land",
+						"orders",
+						"{{order_id}}"
+					]
+				},
+				"description": "Protected API. Fetch status and details for an order using either numeric ID or order reference string (e.g. LND-20261113-ABC123). Strictly verifies user ownership (returns 404 for unauthorized cross-user access)."
+			},
+			"response": []
+		},
+		{
+			"name": "6. GET /api/land/transactions (Land Transaction History)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/land/transactions?page=1&limit=10&type=all&status=all",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"land",
+						"transactions"
+					],
+					"query": [
+						{
+							"key": "page",
+							"value": "1",
+							"description": "Page number"
+						},
+						{
+							"key": "limit",
+							"value": "10",
+							"description": "Transactions per page"
+						},
+						{
+							"key": "type",
+							"value": "all",
+							"description": "Transaction type (all, order_request, order_fulfilled, etc.)"
+						},
+						{
+							"key": "status",
+							"value": "all",
+							"description": "Transaction status (all, pending, completed, failed)"
+						},
+						{
+							"key": "projectId",
+							"value": "",
+							"description": "Filter by land project ID (optional)"
+						}
+					]
+				},
+				"description": "Protected API. Returns logged-in user's land transaction entries with pagination and filters."
+			},
+			"response": []
+		},
+		{
+			"name": "7. GET /api/land/valuations (Land Valuation History)",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/land/valuations?projectId=1&page=1&limit=10",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"land",
+						"valuations"
+					],
+					"query": [
+						{
+							"key": "projectId",
+							"value": "1",
+							"description": "Filter valuations by project ID (optional)"
+						},
+						{
+							"key": "page",
+							"value": "1",
+							"description": "Page number"
+						},
+						{
+							"key": "limit",
+							"value": "10",
+							"description": "Records per page"
+						}
+					]
+				},
+				"description": "Public API to retrieve official valuation histories for projects, showing previous valuation, current valuation, price per unit, and percentage appreciation."
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:5000",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "order_id",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "order_reference",
+			"value": "LND-20261113-DEMO01",
+			"type": "string"
+		}
+	]
+}
+

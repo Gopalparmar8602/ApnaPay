@@ -1,0 +1,222 @@
+{
+	"info": {
+		"_postman_id": "apnapay-wallet-ledger-apis-v1",
+		"name": "ApnaPay - Wallet & Ledger APIs",
+		"description": "Postman Collection for ApnaPay Wallet and Ledger Management APIs with JWT Authentication.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{jwt_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "0. Customer Login (Get JWT Token)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const jsonData = pm.response.json();",
+							"if (jsonData.token || (jsonData.data && jsonData.data.token)) {",
+							"    const token = jsonData.token || jsonData.data.token;",
+							"    pm.environment.set('jwt_token', token);",
+							"    pm.collectionVariables.set('jwt_token', token);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"identifier\": \"test@example.com\",\n  \"password\": \"YourPassword@123\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/v1/auth/login",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"auth",
+						"login"
+					]
+				},
+				"description": "Authenticate customer and retrieve JWT Bearer token."
+			},
+			"response": []
+		},
+		{
+			"name": "1. GET /api/wallet (Wallet Overview)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/wallet",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"wallet"
+					]
+				},
+				"description": "Returns full wallet overview including available balance, currency, active status, KYC status, and aggregate transaction statistics."
+			},
+			"response": []
+		},
+		{
+			"name": "2. GET /api/wallet/balance (Available Balance)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/wallet/balance",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"wallet",
+						"balance"
+					]
+				},
+				"description": "Returns available INR wallet balance and last update timestamp."
+			},
+			"response": []
+		},
+		{
+			"name": "3. GET /api/wallet/ledger (Debit & Credit Entries)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/wallet/ledger?page=1&limit=10&type=all&sort=desc",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"wallet",
+						"ledger"
+					],
+					"query": [
+						{
+							"key": "page",
+							"value": "1",
+							"description": "Page number (default 1)"
+						},
+						{
+							"key": "limit",
+							"value": "10",
+							"description": "Items per page (default 10, max 100)"
+						},
+						{
+							"key": "type",
+							"value": "all",
+							"description": "Filter by entry type: all, credit, debit"
+						},
+						{
+							"key": "sort",
+							"value": "desc",
+							"description": "Sort order: desc (newest first) or asc"
+						},
+						{
+							"key": "startDate",
+							"value": "2026-01-01",
+							"description": "Optional start date filter (YYYY-MM-DD)",
+							"disabled": true
+						},
+						{
+							"key": "endDate",
+							"value": "2026-12-31",
+							"description": "Optional end date filter (YYYY-MM-DD)",
+							"disabled": true
+						}
+					]
+				},
+				"description": "Paginated passbook ledger of debit and credit entries with transaction metadata, reference types, and status."
+			},
+			"response": []
+		},
+		{
+			"name": "4. GET /api/wallet/summary (Balance Summary)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/wallet/summary?period=all",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"wallet",
+						"summary"
+					],
+					"query": [
+						{
+							"key": "period",
+							"value": "all",
+							"description": "Filter period: today, week, month, year, all"
+						}
+					]
+				},
+				"description": "Returns financial summary calculations: total credit, total debit, net flow, transaction counts, and last transaction details."
+			},
+			"response": []
+		},
+		{
+			"name": "5. GET /api/wallet/limits (Transaction Limits & KYC Tier)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/wallet/limits",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"wallet",
+						"limits"
+					]
+				},
+				"description": "Returns wallet capacity, per-transaction, daily, and monthly limits alongside current utilization and remaining headroom based on KYC tier."
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:5000",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
+

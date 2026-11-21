@@ -1,0 +1,299 @@
+{
+	"info": {
+		"_postman_id": "apnapay-transaction-history-apis-v1",
+		"name": "ApnaPay - Transaction History APIs",
+		"description": "Official Postman Collection for ApnaPay Transaction History, Details, Financial Summary, and Statement Export APIs.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{jwt_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "0. Customer Login (Auto-set JWT Token)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const jsonData = pm.response.json();",
+							"const token = jsonData.token || jsonData.accessToken || (jsonData.data && (jsonData.data.token || jsonData.data.accessToken));",
+							"if (token) {",
+							"    pm.environment.set('jwt_token', token);",
+							"    pm.collectionVariables.set('jwt_token', token);",
+							"    console.log('JWT Token successfully set!');",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"identifier\": \"your_email_or_phone@example.com\",\n  \"password\": \"YourPassword@123\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/v1/auth/login",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"auth",
+						"login"
+					]
+				},
+				"description": "Authenticate user to obtain JWT Bearer token for authorized transaction requests."
+			},
+			"response": []
+		},
+		{
+			"name": "1. GET /api/transactions (Transaction List)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/transactions?page=1&limit=10&type=all&status=all&sort=desc",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"transactions"
+					],
+					"query": [
+						{
+							"key": "page",
+							"value": "1",
+							"description": "Page number (default 1)"
+						},
+						{
+							"key": "limit",
+							"value": "10",
+							"description": "Items per page (default 10, max 100)"
+						},
+						{
+							"key": "type",
+							"value": "all",
+							"description": "Filter by type: all, credit, debit, payment, transfer, refund"
+						},
+						{
+							"key": "status",
+							"value": "all",
+							"description": "Filter by status: all, completed, pending, failed"
+						},
+						{
+							"key": "sort",
+							"value": "desc",
+							"description": "Sort order: desc (newest first) or asc"
+						},
+						{
+							"key": "search",
+							"value": "",
+							"description": "Search by transaction ID, reference ID, or description",
+							"disabled": true
+						},
+						{
+							"key": "startDate",
+							"value": "2026-01-01",
+							"description": "Start date (YYYY-MM-DD)",
+							"disabled": true
+						},
+						{
+							"key": "endDate",
+							"value": "2026-12-31",
+							"description": "End date (YYYY-MM-DD)",
+							"disabled": true
+						}
+					]
+				},
+				"description": "Fetch the logged-in user's paginated transaction history with support for type, status, date filters, and keyword search."
+			},
+			"response": []
+		},
+		{
+			"name": "2. GET /api/transactions/:id (Transaction Details)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/transactions/:id",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"transactions",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "1",
+							"description": "Numeric transaction ID belonging to the authenticated user"
+						}
+					]
+				},
+				"description": "Fetch comprehensive transaction details including payment method, bank details, sender/receiver info, and reference ID. Returns 404 if not found or unauthorized."
+			},
+			"response": []
+		},
+		{
+			"name": "3. GET /api/transactions/summary (Financial Summary)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/transactions/summary?period=all",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"transactions",
+						"summary"
+					],
+					"query": [
+						{
+							"key": "period",
+							"value": "all",
+							"description": "Filter period: today, weekly, monthly, all (default all)"
+						},
+						{
+							"key": "startDate",
+							"value": "2026-01-01",
+							"description": "Custom start date filter (YYYY-MM-DD)",
+							"disabled": true
+						},
+						{
+							"key": "endDate",
+							"value": "2026-12-31",
+							"description": "Custom end date filter (YYYY-MM-DD)",
+							"disabled": true
+						}
+					]
+				},
+				"description": "Calculate user's total credits, total debits, net flow, and breakdown of successful, pending, and failed transactions."
+			},
+			"response": []
+		},
+		{
+			"name": "4. GET /api/transactions/export (Export CSV Statement)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/transactions/export?format=csv&type=all&status=all",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"transactions",
+						"export"
+					],
+					"query": [
+						{
+							"key": "format",
+							"value": "csv",
+							"description": "Export format: csv or pdf (default: csv)"
+						},
+						{
+							"key": "type",
+							"value": "all",
+							"description": "Filter by type: all, credit, debit"
+						},
+						{
+							"key": "status",
+							"value": "all",
+							"description": "Filter by status: all, completed, pending, failed"
+						},
+						{
+							"key": "startDate",
+							"value": "2026-01-01",
+							"description": "Optional start date filter (YYYY-MM-DD)",
+							"disabled": true
+						},
+						{
+							"key": "endDate",
+							"value": "2026-12-31",
+							"description": "Optional end date filter (YYYY-MM-DD)",
+							"disabled": true
+						}
+					]
+				},
+				"description": "Export authenticated user's transactions as a formatted CSV spreadsheet statement."
+			},
+			"response": []
+		},
+		{
+			"name": "5. GET /api/transactions/export (Export PDF Statement)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/transactions/export?format=pdf&type=all&status=all",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"transactions",
+						"export"
+					],
+					"query": [
+						{
+							"key": "format",
+							"value": "pdf",
+							"description": "Export format: pdf"
+						},
+						{
+							"key": "type",
+							"value": "all",
+							"description": "Filter by type: all, credit, debit"
+						},
+						{
+							"key": "status",
+							"value": "all",
+							"description": "Filter by status: all, completed, pending, failed"
+						}
+					]
+				},
+				"description": "Export authenticated user's transactions as an official PDF 1.4 statement document."
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:5000",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
+
