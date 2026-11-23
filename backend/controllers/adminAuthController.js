@@ -303,7 +303,7 @@ exports.sendOtp = async (req, res) => {
 
         const otp = crypto.randomInt(100000, 1000000).toString();
 
-        const otpHash = await bcrypt.hash(otp, 12);
+        const otpHash = await bcrypt.hash(otp, 10);
 
         const expiresAt = new Date(
             Date.now() + 5 * 60 * 1000
@@ -757,7 +757,7 @@ exports.forgotPassword = async (req, res) => {
         }
 
         const otp = crypto.randomInt(100000, 1000000).toString();
-        const otpHash = await bcrypt.hash(otp, 12);
+        const otpHash = await bcrypt.hash(otp, 10);
         const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
         await db.execute(

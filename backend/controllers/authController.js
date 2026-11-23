@@ -109,13 +109,18 @@ exports.sendOtp = async (req, res) => {
         // For registration or email verification: ensure the account is not already registered
         if (purpose === 'email_verification' || purpose === 'register' || purpose === 'registration') {
             const [existing] = await db.execute(
-                `SELECT id, email, phone FROM users WHERE (email = ? AND email IS NOT NULL) OR phone = ? LIMIT 1`,
-                [rawEmail, rawPhone]
+                `SELECT id, email, phone FROM users 
+                 WHERE (email = ? AND email IS NOT NULL) 
+                    OR phone = ? 
+                    OR phone = ? 
+                    OR phone = ? 
+                 LIMIT 1`,
+                [rawEmail, rawPhone, `+91${rawPhone}`, `91${rawPhone}`]
             );
 
             if (existing.length > 0) {
                 const isEmailMatch = rawEmail && existing[0].email && existing[0].email.toLowerCase() === rawEmail;
-                const isPhoneMatch = rawPhone && existing[0].phone && existing[0].phone === rawPhone;
+                const isPhoneMatch = rawPhone && existing[0].phone && (existing[0].phone === rawPhone || existing[0].phone.endsWith(rawPhone));
                 let message = 'An account with this email or phone is already registered.';
                 if (isEmailMatch && isPhoneMatch) {
                     message = 'An account with this email and phone number is already registered. Please log in.';
@@ -440,14 +445,14 @@ exports.register = async (req, res) => {
         const [existingUsers] = await db.execute(
             `SELECT id, email, phone
              FROM users
-             WHERE phone = ? OR (email = ? AND email IS NOT NULL)
+             WHERE phone = ? OR phone = ? OR phone = ? OR (email = ? AND email IS NOT NULL)
              LIMIT 1`,
-            [userPhone, userEmail]
+            [userPhone, `+91${userPhone}`, `91${userPhone}`, userEmail]
         );
 
         if (existingUsers.length > 0) {
             const existing = existingUsers[0];
-            const duplicateField = existing.phone === userPhone ? 'Phone number' : 'Email address';
+            const duplicateField = (existing.phone === userPhone || existing.phone?.endsWith(userPhone)) ? 'Phone number' : 'Email address';
             return res.status(409).json({
                 success: false,
                 message: `${duplicateField} is already registered. Please log in instead.`
@@ -623,50 +628,113 @@ exports.loginSendOtp = async (req, res) => {
         const digits = rawPhone.replace(/\D/g, '');
         const cleanPhone = digits.length > 10 ? digits.slice(-10) : digits;
 
-        if (!cleanPhone || cleanPhone.length !== 10) {
+        if (!cleanPhone && !rawEmail) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide your registered mobile number or email address.'
+            });
+        }
+
+        if (cleanPhone && cleanPhone.length !== 10) {
             return res.status(400).json({
                 success: false,
                 message: 'A valid 10-digit registered mobile number is required.'
             });
         }
 
-        if (!rawEmail || !EMAIL_REGEX.test(rawEmail)) {
+        if (rawEmail && !EMAIL_REGEX.test(rawEmail)) {
             return res.status(400).json({
                 success: false,
-                message: 'Please enter a valid registered email address.'
+                message: 'Please enter a valid registered email address format.'
             });
         }
 
-        // Look up user by phone
-        let [users] = await db.execute(
-            `SELECT id, full_name, email, phone, status
-             FROM users
-             WHERE phone = ? OR phone = ? OR phone = ?
-             LIMIT 1`,
-            [cleanPhone, `+91${cleanPhone}`, `91${cleanPhone}`]
-        );
+        let user = null;
 
-        let user = users[0];
-
-        // If not found by phone, try finding by email
-        if (!user) {
-            const [byEmail] = await db.execute(
+        if (cleanPhone && rawEmail) {
+            // Primary path: Match phone AND email together
+            const [users] = await db.execute(
                 `SELECT id, full_name, email, phone, status
                  FROM users
-                 WHERE email = ?
+                 WHERE (phone = ? OR phone = ? OR phone = ?)
+                   AND LOWER(email) = ?
+                 LIMIT 1`,
+                [cleanPhone, `+91${cleanPhone}`, `91${cleanPhone}`, rawEmail]
+            );
+            user = users[0];
+
+            if (!user) {
+                // Diagnostic check for user-friendly error message
+                const [byPhone] = await db.execute(
+                    `SELECT id, full_name, email, phone, status FROM users WHERE phone = ? OR phone = ? OR phone = ? LIMIT 1`,
+                    [cleanPhone, `+91${cleanPhone}`, `91${cleanPhone}`]
+                );
+                const [byEmail] = await db.execute(
+                    `SELECT id, full_name, email, phone, status FROM users WHERE LOWER(email) = ? LIMIT 1`,
+                    [rawEmail]
+                );
+
+                if (!byPhone.length && !byEmail.length) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'No registered account found with this mobile number and email. Please create an account.'
+                    });
+                }
+
+                // If user registered with phone and had null email, link this email
+                if (byPhone.length > 0 && !byPhone[0].email) {
+                    user = byPhone[0];
+                    user.email = rawEmail;
+                    await db.execute('UPDATE users SET email = ? WHERE id = ?', [rawEmail, user.id]);
+                } else if (byPhone.length > 0 && !byEmail.length) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Email address does not match this registered mobile number. Registered email is ${maskEmail(byPhone[0].email)}.`
+                    });
+                } else if (!byPhone.length && byEmail.length > 0) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Mobile number does not match this registered email address.'
+                    });
+                } else {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'The entered phone number and email belong to different registered accounts.'
+                    });
+                }
+            }
+        } else if (cleanPhone) {
+            // Phone only lookup
+            const [users] = await db.execute(
+                `SELECT id, full_name, email, phone, status
+                 FROM users
+                 WHERE phone = ? OR phone = ? OR phone = ?
+                 LIMIT 1`,
+                [cleanPhone, `+91${cleanPhone}`, `91${cleanPhone}`]
+            );
+            user = users[0];
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'No registered account found with this mobile number.'
+                });
+            }
+        } else if (rawEmail) {
+            // Email only lookup
+            const [users] = await db.execute(
+                `SELECT id, full_name, email, phone, status
+                 FROM users
+                 WHERE LOWER(email) = ?
                  LIMIT 1`,
                 [rawEmail]
             );
-            if (byEmail.length > 0) {
-                user = byEmail[0];
+            user = users[0];
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'No registered account found with this email address.'
+                });
             }
-        }
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'This account is not registered. Please create an account.'
-            });
         }
 
         if (user.status !== 'active') {
@@ -674,27 +742,6 @@ exports.loginSendOtp = async (req, res) => {
                 success: false,
                 message: 'Your account is deactivated or suspended. Please contact support.'
             });
-        }
-
-        // Confirm that the entered email matches the registered account for this mobile number
-        if (!user.email || user.email.toLowerCase() !== rawEmail) {
-            // Check if there is an active account directly registered with this email
-            const [emailMatch] = await db.execute(
-                `SELECT id, full_name, email, phone, status
-                 FROM users
-                 WHERE email = ?
-                 LIMIT 1`,
-                [rawEmail]
-            );
-
-            if (emailMatch.length > 0 && emailMatch[0].status === 'active') {
-                user = emailMatch[0];
-            } else {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Phone number and email do not match the registered account.'
-                });
-            }
         }
 
         // Cooldown check (60 seconds)
@@ -801,17 +848,24 @@ exports.loginVerifyOtp = async (req, res) => {
         const digits = rawPhone.replace(/\D/g, '');
         const cleanPhone = digits.length > 10 ? digits.slice(-10) : digits;
 
-        if (!cleanPhone || cleanPhone.length !== 10) {
+        if (!cleanPhone && !rawEmail) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide your registered mobile number or email address.'
+            });
+        }
+
+        if (cleanPhone && cleanPhone.length !== 10) {
             return res.status(400).json({
                 success: false,
                 message: 'A valid 10-digit mobile number is required.'
             });
         }
 
-        if (!rawEmail || !EMAIL_REGEX.test(rawEmail)) {
+        if (rawEmail && !EMAIL_REGEX.test(rawEmail)) {
             return res.status(400).json({
                 success: false,
-                message: 'A valid registered email address is required.'
+                message: 'A valid registered email address format is required.'
             });
         }
 
@@ -822,34 +876,51 @@ exports.loginVerifyOtp = async (req, res) => {
             });
         }
 
-        // Look up user
-        let [users] = await db.execute(
-            `SELECT id, full_name, email, phone, status
-             FROM users
-             WHERE (phone = ? OR phone = ? OR phone = ?)
-             LIMIT 1`,
-            [cleanPhone, `+91${cleanPhone}`, `91${cleanPhone}`]
-        );
+        let user = null;
 
-        let user = users[0];
-
-        if (!user) {
-            const [byEmail] = await db.execute(
+        if (cleanPhone && rawEmail) {
+            const [users] = await db.execute(
                 `SELECT id, full_name, email, phone, status
                  FROM users
-                 WHERE email = ?
+                 WHERE (phone = ? OR phone = ? OR phone = ?)
+                   AND LOWER(email) = ?
+                 LIMIT 1`,
+                [cleanPhone, `+91${cleanPhone}`, `91${cleanPhone}`, rawEmail]
+            );
+            user = users[0];
+            if (!user) {
+                const [byPhone] = await db.execute(
+                    `SELECT id, full_name, email, phone, status FROM users WHERE phone = ? OR phone = ? OR phone = ? LIMIT 1`,
+                    [cleanPhone, `+91${cleanPhone}`, `91${cleanPhone}`]
+                );
+                if (byPhone.length > 0 && (!byPhone[0].email || byPhone[0].email.toLowerCase() === rawEmail)) {
+                    user = byPhone[0];
+                }
+            }
+        } else if (cleanPhone) {
+            const [users] = await db.execute(
+                `SELECT id, full_name, email, phone, status
+                 FROM users
+                 WHERE phone = ? OR phone = ? OR phone = ?
+                 LIMIT 1`,
+                [cleanPhone, `+91${cleanPhone}`, `91${cleanPhone}`]
+            );
+            user = users[0];
+        } else if (rawEmail) {
+            const [users] = await db.execute(
+                `SELECT id, full_name, email, phone, status
+                 FROM users
+                 WHERE LOWER(email) = ?
                  LIMIT 1`,
                 [rawEmail]
             );
-            if (byEmail.length > 0) {
-                user = byEmail[0];
-            }
+            user = users[0];
         }
 
         if (!user) {
             return res.status(404).json({
                 success: false,
-                message: 'Customer account not found.'
+                message: 'Customer account not found or phone and email do not match.'
             });
         }
 
@@ -858,24 +929,6 @@ exports.loginVerifyOtp = async (req, res) => {
                 success: false,
                 message: 'Your account is deactivated or suspended. Please contact support.'
             });
-        }
-
-        if (!user.email || user.email.toLowerCase() !== rawEmail) {
-            const [emailUsers] = await db.execute(
-                `SELECT id, full_name, email, phone, status
-                 FROM users
-                 WHERE email = ?
-                 LIMIT 1`,
-                [rawEmail]
-            );
-            if (emailUsers.length > 0 && emailUsers[0].status === 'active') {
-                user = emailUsers[0];
-            } else {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Phone number and email do not match the registered account.'
-                });
-            }
         }
 
         // Fetch latest active unverified OTP for purpose = 'CUSTOMER_LOGIN' or 'login'

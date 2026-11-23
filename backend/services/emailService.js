@@ -4,27 +4,29 @@ const nodemailer = require('nodemailer');
 let pooledTransporter = null;
 
 const createTransporterInstance = (isPooled = true) => {
-    const host = process.env.EMAIL_HOST || 'smtp.gmail.com';
-    const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
-    const secure = process.env.EMAIL_SECURE !== undefined
-        ? process.env.EMAIL_SECURE === 'true'
-        : (port === 465);
+    const rawHost = process.env.EMAIL_HOST || 'smtp.gmail.com';
+    const rawPort = parseInt(process.env.EMAIL_PORT, 10);
+    const isGmail = (!rawHost || rawHost.includes('gmail'));
+    
+    // Direct SSL (port 465) connects immediately without STARTTLS negotiation roundtrips
+    const port = isGmail ? 465 : (rawPort || 465);
+    const secure = isGmail ? true : (process.env.EMAIL_SECURE !== undefined ? process.env.EMAIL_SECURE === 'true' : port === 465);
 
     const user = process.env.EMAIL_USER;
     const rawPass = process.env.EMAIL_PASS || process.env.EMAIL_APP_PASSWORD || '';
     const pass = rawPass.replace(/\s+/g, '');
 
     const config = {
-        host,
+        host: isGmail ? 'smtp.gmail.com' : rawHost,
         port,
         secure,
         auth: {
             user,
             pass
         },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000,
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 8000,
         tls: {
             rejectUnauthorized: false,
             minVersion: 'TLSv1.2'
@@ -34,9 +36,11 @@ const createTransporterInstance = (isPooled = true) => {
     if (isPooled) {
         config.pool = true;
         config.maxConnections = 5;
-        config.maxMessages = 100;
-        config.rateDelta = 1000;
-        config.rateLimit = 5;
+        config.maxMessages = Infinity;
+        // Zero delay: Send instantly without artificial queue delays
+        config.rateDelta = 0;
+        config.rateLimit = false;
+        config.keepAlive = true;
     }
 
     const transporter = nodemailer.createTransport(config);
@@ -57,6 +61,19 @@ const getTransporter = () => {
     }
     pooledTransporter = createTransporterInstance(true);
     return pooledTransporter;
+};
+
+// Pre-warm the SMTP connection pool on startup for instant 1-2s OTP dispatch
+const warmTransporter = async () => {
+    try {
+        const transporter = getTransporter();
+        await transporter.verify();
+        console.log('[EmailService] SMTP connection pre-warmed & ready for instant 1-2s OTP delivery.');
+        return true;
+    } catch (err) {
+        console.warn('[EmailService] SMTP pre-warm warning (will connect on first dispatch):', err.message);
+        return false;
+    }
 };
 
 // Check email configuration
@@ -226,5 +243,6 @@ module.exports = {
     sendOtpEmail,
     maskEmail,
     checkEmailConfig,
-    isEmailConfigured: checkEmailConfig
+    isEmailConfigured: checkEmailConfig,
+    warmTransporter
 };
