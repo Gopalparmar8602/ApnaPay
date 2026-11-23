@@ -92,6 +92,9 @@ api.interceptors.response.use(
           localStorage.removeItem('apnapay_token');
           localStorage.removeItem('apnapay_refresh_token');
           localStorage.removeItem('apnapay_user');
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('apnapay:auth_cleared'));
+          }
         }
       }
     }

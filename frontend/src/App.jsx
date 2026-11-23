@@ -3,6 +3,9 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { AdminAuthProvider } from './context/AdminAuthContext';
 
+// Public Pages
+import LandingPage from './pages/public/LandingPage';
+
 // Customer Pages
 import LoginPage from './pages/customer/LoginPage';
 import SignupPage from './pages/customer/SignupPage';
@@ -40,8 +43,8 @@ function App() {
       <AuthProvider>
         <AdminAuthProvider>
           <Routes>
-            {/* Root redirect */}
-            <Route path="/" element={<Navigate to="/login" replace />} />
+            {/* Public Landing Page */}
+            <Route path="/" element={<LandingPage />} />
 
             {/* ================= Customer Routes ================= */}
             <Route path="/login" element={<LoginPage />} />

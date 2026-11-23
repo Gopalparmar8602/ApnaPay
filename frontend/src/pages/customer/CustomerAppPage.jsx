@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   ShieldIcon,
@@ -210,7 +210,12 @@ const CustomerAppPage = () => {
     <div className="dashboard-container">
       {/* Top Navigation */}
       <header className="dashboard-nav">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <Link
+          to="/"
+          style={{ display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
+          title="Go to ApnaPay Home"
+          aria-label="ApnaPay Home"
+        >
           <div className="brand-logo-icon" style={{ width: '34px', height: '34px' }}>
             <ShieldIcon size={20} />
           </div>
@@ -220,7 +225,7 @@ const CustomerAppPage = () => {
           <span className="brand-badge" style={{ marginBottom: 0, marginLeft: '10px' }}>
             CUSTOMER PORTAL
           </span>
-        </div>
+        </Link>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button

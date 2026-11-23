@@ -194,12 +194,12 @@ const AdminLoginPage = () => {
     }
 
     // OTP Mode submission (Default - matching customer login flow)
-    if (!otpSent) {
-      setGlobalError('Please request OTP first.');
+    if (!otpSent || !otp) {
+      await handleSendOtp(e);
       return;
     }
 
-    if (!otp || otp.length !== 6) {
+    if (otp.length !== 6) {
       setErrors((prev) => ({ ...prev, otp: 'Please enter a valid 6-digit OTP.' }));
       return;
     }

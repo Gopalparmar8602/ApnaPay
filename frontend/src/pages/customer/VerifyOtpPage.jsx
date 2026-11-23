@@ -147,6 +147,8 @@ const VerifyOtpPage = () => {
 
         navigate('/login', {
           state: {
+            phone: phone,
+            email: email,
             successMessage: 'Account created successfully! Please sign in with your registered phone number and email.'
           }
         });

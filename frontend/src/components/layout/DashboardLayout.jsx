@@ -151,13 +151,13 @@ const DashboardLayout = ({
       {/* 1. FIXED LEFT SIDEBAR (STATIONARY WHILE CONTENT SCROLLS) */}
       {/* =================================================== */}
       <aside className={`portal-sidebar ${mobileOpen ? 'open' : ''}`}>
-        {/* Top Brand Header (Clickable - Navigates to Main Dashboard) */}
+        {/* Top Brand Header (Clickable - Navigates to ApnaPay Landing Page) */}
         <div className="portal-sidebar-header">
           <Link
-            to="/app"
+            to="/"
             onClick={() => setMobileOpen(false)}
             className="sidebar-brand-link"
-            title="Go to ApnaPay Main Dashboard"
+            title="Go to ApnaPay Home"
             aria-label="ApnaPay Home"
           >
             <div

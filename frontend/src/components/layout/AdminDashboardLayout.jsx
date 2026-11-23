@@ -89,14 +89,14 @@ const AdminDashboardLayout = ({
       {/* ADMIN SIDEBAR NAVIGATION                            */}
       {/* =================================================== */}
       <aside className={`portal-sidebar ${mobileOpen ? 'open' : ''}`}>
-        {/* Brand Header (Clickable - Navigates to Admin Dashboard) */}
+        {/* Brand Header (Clickable - Navigates to ApnaPay Home) */}
         <div className="portal-sidebar-header">
           <Link
-            to="/admin"
+            to="/"
             onClick={() => setMobileOpen(false)}
             className="sidebar-brand-link"
-            title="Go to Admin Dashboard"
-            aria-label="Admin Dashboard Home"
+            title="Go to ApnaPay Home"
+            aria-label="ApnaPay Home"
           >
             <div
               className="brand-logo-icon"
