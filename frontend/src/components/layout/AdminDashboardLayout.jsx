@@ -89,14 +89,14 @@ const AdminDashboardLayout = ({
       {/* ADMIN SIDEBAR NAVIGATION                            */}
       {/* =================================================== */}
       <aside className={`portal-sidebar ${mobileOpen ? 'open' : ''}`}>
-        {/* Brand Header (Clickable - Navigates to ApnaPay Home) */}
+        {/* Brand Header (Clickable - Navigates to Admin Dashboard) */}
         <div className="portal-sidebar-header">
           <Link
-            to="/"
+            to="/admin"
             onClick={() => setMobileOpen(false)}
             className="sidebar-brand-link"
-            title="Go to ApnaPay Home"
-            aria-label="ApnaPay Home"
+            title="Go to Admin Dashboard"
+            aria-label="Admin Dashboard Home"
           >
             <div
               className="brand-logo-icon"
@@ -228,13 +228,15 @@ const AdminDashboardLayout = ({
         {/* Top Navbar */}
         <header className="portal-top-navbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="portal-hamburger-btn"
-              aria-label="Open Admin Menu"
-            >
-              <MenuIcon size={24} />
-            </button>
+            {!shouldShowBack && (
+              <button
+                onClick={() => setMobileOpen(true)}
+                className="portal-hamburger-btn"
+                aria-label="Open Admin Menu"
+              >
+                <MenuIcon size={24} />
+              </button>
+            )}
 
             {/* Back Button on internal admin pages */}
             {shouldShowBack && (

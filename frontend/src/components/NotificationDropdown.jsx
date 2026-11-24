@@ -118,11 +118,21 @@ const NotificationDropdown = () => {
     const handleFocus = () => {
       loadNotifications(filter, false);
     };
+    const handleToggle = () => {
+      setIsOpen((prev) => {
+        const next = !prev;
+        if (next) loadNotifications(filter, false);
+        return next;
+      });
+    };
+
     window.addEventListener('focus', handleFocus);
+    window.addEventListener('toggle-alerts-dropdown', handleToggle);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('toggle-alerts-dropdown', handleToggle);
     };
   }, [filter]);
 

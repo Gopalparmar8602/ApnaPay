@@ -15,12 +15,14 @@ import {
   MenuIcon,
   XIcon,
   WalletIcon,
-  RefreshCwIcon,
   ReceiptIcon,
   SearchIcon,
   ShieldCheckIcon,
-  ChevronDownIcon,
-  BellIcon
+  BellIcon,
+  QrCodeIcon,
+  HelpCircleIcon,
+  SparklesIcon,
+  GridIcon
 } from '../Icons';
 
 const DashboardLayout = ({
@@ -40,6 +42,7 @@ const DashboardLayout = ({
   const [walletBalance, setWalletBalance] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -49,7 +52,7 @@ const DashboardLayout = ({
           setWalletBalance(res.data.formattedBalance);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => { isMounted = false; };
   }, []);
 
@@ -67,6 +70,13 @@ const DashboardLayout = ({
       label: 'Dashboard',
       icon: HomeIcon,
       exact: true
+    },
+    {
+      to: '/app/services',
+      label: 'All Services',
+      icon: GridIcon,
+      badge: 'Hub',
+      badgeColor: 'blue'
     },
     {
       to: '/app/wallet',
@@ -121,9 +131,9 @@ const DashboardLayout = ({
 
   const filteredServices = searchQuery.trim()
     ? searchableServices.filter((s) =>
-        s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.desc.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+      s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      s.desc.toLowerCase().includes(searchQuery.toLowerCase())
+    )
     : [];
 
   const getInitials = (name) => {
@@ -151,13 +161,13 @@ const DashboardLayout = ({
       {/* 1. FIXED LEFT SIDEBAR (STATIONARY WHILE CONTENT SCROLLS) */}
       {/* =================================================== */}
       <aside className={`portal-sidebar ${mobileOpen ? 'open' : ''}`}>
-        {/* Top Brand Header (Clickable - Navigates to ApnaPay Landing Page) */}
+        {/* Top Brand Header (Clickable - Navigates to ApnaPay Main Dashboard) */}
         <div className="portal-sidebar-header">
           <Link
-            to="/"
+            to="/app"
             onClick={() => setMobileOpen(false)}
             className="sidebar-brand-link"
-            title="Go to ApnaPay Home"
+            title="Go to ApnaPay Main Dashboard"
             aria-label="ApnaPay Home"
           >
             <div
@@ -276,23 +286,32 @@ const DashboardLayout = ({
       <div className="portal-main-area">
         {/* Fixed Top Dashboard Header */}
         <header className="portal-top-navbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
-            {/* Hamburger for mobile (<1024px) */}
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="portal-hamburger-btn"
-              aria-label="Open Navigation Menu"
-            >
-              <MenuIcon size={22} />
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+            {/* Hamburger for mobile (<1024px) - Only on main overview where shouldShowBack is false */}
+            {!shouldShowBack && (
+              <button
+                onClick={() => setMobileOpen(true)}
+                className="portal-hamburger-btn"
+                aria-label="Open Navigation Menu"
+              >
+                <MenuIcon size={22} />
+              </button>
+            )}
 
-            {/* Back Button on every internal page (Hidden on Overview) */}
+            {/* Back Button on every internal page (Corner Back Arrow on phone view) */}
             {shouldShowBack && (
               <BackButton
                 fallback={backFallback}
                 label={backLabel}
                 onClick={onBack}
               />
+            )}
+
+            {/* Mobile Header Title on internal subpages */}
+            {shouldShowBack && title && (
+              <div className="mobile-header-title-text show-on-mobile">
+                {title}
+              </div>
             )}
 
             {/* Search Services Field */}
@@ -351,49 +370,77 @@ const DashboardLayout = ({
             </div>
           </div>
 
-          {/* Right Header Controls (Notifications & User Pill) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-            {walletBalance && (
-              <div
-                className="balance-pill"
-                onClick={() => navigate('/app/wallet')}
-                style={{ borderColor: '#17385D', cursor: 'pointer', background: '#0B1B32' }}
-                title="View Wallet & Ledger"
-              >
-                <WalletIcon size={14} style={{ color: '#00A8FF' }} />
-                <strong style={{ color: '#00E599', fontSize: '12px' }}>{walletBalance}</strong>
-              </div>
-            )}
-
+          {/* Right Header Controls (Notifications, User Avatar & Help in Corner) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             {/* Notification Bell Dropdown */}
             <NotificationDropdown />
 
-            {/* User Profile Pill */}
+            {/* User Profile Avatar with PhonePe-style Mini QR Badge (Only GP Avatar, no text name) */}
             <div
               className="header-user-pill"
               onClick={() => navigate('/app/profile')}
               title="Go to Profile & Security"
+              style={{
+                width: '38px',
+                height: '38px',
+                padding: 0,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#0B1B32',
+                border: '1px solid #17385D'
+              }}
             >
-              <div className="header-user-avatar">
+              <div className="header-user-avatar" style={{ position: 'relative', width: '30px', height: '30px', fontSize: '11px' }}>
                 {initials}
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.dispatchEvent(new CustomEvent('open-my-qr'));
+                  }}
+                  title="Open My QR Code"
+                  style={{
+                    position: 'absolute',
+                    bottom: '-2px',
+                    right: '-2px',
+                    width: '14px',
+                    height: '14px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #087BFF, #00D5FF)',
+                    border: '1.5px solid #071426',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#FFFFFF'
+                  }}
+                >
+                  <QrCodeIcon size={8} />
+                </span>
               </div>
-              <span className="header-user-name">
-                {displayName.split(' ')[0]}
-              </span>
-              <ChevronDownIcon size={14} style={{ color: '#A9BDD7' }} />
             </div>
 
-            {onRefresh && (
-              <button
-                onClick={onRefresh}
-                title="Refresh Page Data"
-                className="auth-button secondary"
-                style={{ width: '38px', height: '38px', padding: 0, margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' }}
-                aria-label="Refresh Data"
-              >
-                <RefreshCwIcon size={15} />
-              </button>
-            )}
+            {/* Help & Support Button (Corner) */}
+            <button
+              onClick={() => setHelpOpen(true)}
+              title="Help & Support"
+              className="auth-button secondary"
+              style={{
+                width: '38px',
+                height: '38px',
+                padding: 0,
+                margin: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '10px',
+                color: '#A9BDD7',
+                borderColor: '#17385D'
+              }}
+              aria-label="Help & Support"
+            >
+              <HelpCircleIcon size={18} />
+            </button>
           </div>
         </header>
 
@@ -402,7 +449,7 @@ const DashboardLayout = ({
           {children}
         </main>
 
-        {/* Mobile Bottom Navigation Bar (<1024px) */}
+        {/* Mobile Bottom Navigation Bar (PhonePe inspired 5-tab layout with center QR action) */}
         <nav className="mobile-bottom-nav">
           <NavLink
             to="/app"
@@ -414,20 +461,38 @@ const DashboardLayout = ({
           </NavLink>
 
           <NavLink
-            to="/app/wallet"
+            to="/app/services"
             className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
           >
-            <WalletIcon size={20} />
-            <span>Wallet</span>
+            <GridIcon size={20} />
+            <span>Services</span>
           </NavLink>
 
-          <NavLink
-            to="/app/bills"
-            className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
+          {/* Elevated Center Glowing QR Scan Button */}
+          <div className="mobile-center-qr-wrap">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-qr-scanner'))}
+              className="mobile-center-qr-btn"
+              title="Scan any QR Code"
+              aria-label="Scan any QR Code"
+            >
+              <QrCodeIcon size={24} />
+            </button>
+            <span className="mobile-center-qr-label">Scan QR</span>
+          </div>
+
+          {/* Alerts Tab in Bottom Nav (Wallet preserved in sidebar, balance pill and dashboard) */}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('toggle-alerts-dropdown'))}
+            className="mobile-bottom-link mobile-bottom-alerts-btn"
+            title="Alerts & Notifications"
+            aria-label="Alerts & Notifications"
           >
-            <ReceiptIcon size={20} />
-            <span>Bills</span>
-          </NavLink>
+            <BellIcon size={20} />
+            <span>Alerts</span>
+          </button>
 
           <NavLink
             to="/app/transactions"
@@ -436,16 +501,78 @@ const DashboardLayout = ({
             <HistoryIcon size={20} />
             <span>History</span>
           </NavLink>
-
-          <NavLink
-            to="/app/profile"
-            className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
-          >
-            <UserIcon size={20} />
-            <span>Profile</span>
-          </NavLink>
         </nav>
       </div>
+
+      {/* Help & Support Modal */}
+      {helpOpen && (
+        <div
+          className="admin-land-modal-overlay"
+          onClick={() => setHelpOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="admin-land-modal-container"
+            style={{ maxWidth: '440px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="admin-land-modal-header">
+              <div className="admin-land-modal-header-title">
+                <HelpCircleIcon size={20} style={{ color: '#00A8FF' }} />
+                <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#FFFFFF', margin: 0 }}>
+                  ApnaPay Help & Support
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHelpOpen(false)}
+                className="admin-land-modal-close-btn"
+                title="Close"
+              >
+                <XIcon size={16} />
+              </button>
+            </div>
+
+            <div className="admin-land-modal-body" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
+              <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '10px', padding: '12px', marginBottom: '12px' }}>
+                <div style={{ fontSize: '13px', fontWeight: '700', color: '#00D5FF', marginBottom: '4px' }}>
+                  Simulated Payment Sandbox
+                </div>
+                <div style={{ fontSize: '12px', color: '#A9BDD7', lineHeight: 1.4 }}>
+                  ApnaPay operates in a secure demo sandbox environment. All wallet balances, UPI transfers, and BBPS utility bill payments are simulated on your double-entry escrow ledger.
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ background: '#0B1B32', border: '1px solid #17385D', borderRadius: '8px', padding: '10px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#FFFFFF' }}>How do I send money?</div>
+                  <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>Use "To Mobile Number" or "Scan & Pay" with any valid 10-digit number or @apnapay UPI ID.</div>
+                </div>
+                <div style={{ background: '#0B1B32', border: '1px solid #17385D', borderRadius: '8px', padding: '10px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#FFFFFF' }}>How do I check balance?</div>
+                  <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>Click "Check Balance" on the dashboard to view your escrow wallet and linked bank accounts.</div>
+                </div>
+                <div style={{ background: '#0B1B32', border: '1px solid #17385D', borderRadius: '8px', padding: '10px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#FFFFFF' }}>What is Digital Land & SIP?</div>
+                  <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>ApnaPay's signature innovative modules allowing simulated fractional property investments and recurring wealth planning.</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="admin-land-modal-footer">
+              <button
+                type="button"
+                onClick={() => setHelpOpen(false)}
+                className="auth-button"
+                style={{ width: '100%', height: '36px', fontSize: '13px', margin: 0 }}
+              >
+                Close Support
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

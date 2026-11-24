@@ -27,9 +27,9 @@ const AuthLayout = ({
           </div>
 
           <Link
-            to="/"
+            to="/login"
             className="brand-logo-wrap"
-            title="Go to ApnaPay Home"
+            title="Go to ApnaPay Login"
             aria-label="ApnaPay Home"
           >
             <div className="brand-logo-icon">

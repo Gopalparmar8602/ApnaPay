@@ -3,9 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { AdminAuthProvider } from './context/AdminAuthContext';
 
-// Public Pages
-import LandingPage from './pages/public/LandingPage';
-
 // Customer Pages
 import LoginPage from './pages/customer/LoginPage';
 import SignupPage from './pages/customer/SignupPage';
@@ -21,6 +18,7 @@ import CustomerWalletPage from './pages/customer/CustomerWalletPage';
 import CustomerTransactionsPage from './pages/customer/CustomerTransactionsPage';
 import CustomerLandPage from './pages/customer/CustomerLandPage';
 import CustomerBillsPage from './pages/customer/CustomerBillsPage';
+import CustomerServicesPage from './pages/customer/CustomerServicesPage';
 
 // Admin Pages
 import AdminLoginPage from './pages/admin/AdminLoginPage';
@@ -43,8 +41,8 @@ function App() {
       <AuthProvider>
         <AdminAuthProvider>
           <Routes>
-            {/* Public Landing Page */}
-            <Route path="/" element={<LandingPage />} />
+            {/* Root redirect */}
+            <Route path="/" element={<Navigate to="/login" replace />} />
 
             {/* ================= Customer Routes ================= */}
             <Route path="/login" element={<LoginPage />} />
@@ -61,6 +59,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <CustomerDashboardOverview />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/app/services"
+              element={
+                <ProtectedRoute>
+                  <CustomerServicesPage />
                 </ProtectedRoute>
               }
             />
