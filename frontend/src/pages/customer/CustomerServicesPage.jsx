@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import DashboardLayout from '../../components/layout/DashboardLayout';
@@ -226,7 +225,8 @@ const CustomerServicesPage = () => {
       badge: 'Instant 24x7',
       badgeColor: 'blue',
       actions: [
-        { label: 'To Mobile / UPI', onClick: () => navigate('/app/upi') },
+        { label: 'P2P Transfers', onClick: () => navigate('/app/transfers') },
+        { label: 'To Mobile / UPI', onClick: () => navigate('/app/transfers') },
         { label: 'To Bank Account', onClick: () => navigate('/app/banks') }
       ]
     },
@@ -254,6 +254,7 @@ const CustomerServicesPage = () => {
       badge: 'Zero Fee',
       badgeColor: 'cyan',
       actions: [
+        { label: 'QR Payments Center', onClick: () => navigate('/app/qr') },
         { label: 'Scan Camera', onClick: () => setScanPayModalOpen(true) },
         { label: 'My QR Code', onClick: () => setQrModalOpen(true) }
       ]
@@ -268,9 +269,63 @@ const CustomerServicesPage = () => {
       badge: 'BBPS Assured',
       badgeColor: 'yellow',
       actions: [
-        { label: 'Mobile Recharge', onClick: () => navigate('/app/bills?category=mobile_postpaid') },
+        { label: 'Mobile Recharge Plans', onClick: () => navigate('/app/recharge') },
         { label: 'Electricity Bill', onClick: () => navigate('/app/bills?category=electricity') },
         { label: 'View All Billers', onClick: () => navigate('/app/bills') }
+      ]
+    },
+    {
+      id: 'sip_wealth',
+      category: 'investments',
+      title: 'SIP & Wealth Planning',
+      desc: 'Systematic investment plans, daily micro-savings starting from ₹10/day, mutual funds & wealth pools.',
+      icon: TrendingUpIcon,
+      color: '#34D399',
+      badge: 'From ₹10/day',
+      badgeColor: 'green',
+      actions: [
+        { label: 'Explore SIPs', onClick: () => navigate('/app/sip') },
+        { label: 'Mutual Funds', onClick: () => navigate('/app/sip?tab=funds') }
+      ]
+    },
+    {
+      id: 'disputes_refunds',
+      category: 'banking',
+      title: 'Dispute & Refund Center',
+      desc: '24-hour automated grievance SLA reversal, raise transaction dispute tickets and track refund statuses.',
+      icon: ShieldCheckIcon,
+      color: '#FB7185',
+      badge: 'Help & SLA',
+      badgeColor: 'blue',
+      actions: [
+        { label: 'Disputes & Refunds', onClick: () => navigate('/app/disputes') },
+        { label: 'Raise Grievance', onClick: () => navigate('/app/disputes?tab=raise') }
+      ]
+    },
+    {
+      id: 'kyc_verification',
+      category: 'banking',
+      title: 'KYC & Identity Verification',
+      desc: 'RBI compliant KYC tier upgrading, PAN verification, Aadhaar OTP and transaction limit ceilings.',
+      icon: ShieldIcon,
+      color: '#00E599',
+      badge: 'RBI Compliant',
+      badgeColor: 'green',
+      actions: [
+        { label: 'KYC Center', onClick: () => navigate('/app/kyc') }
+      ]
+    },
+    {
+      id: 'payments_gateway',
+      category: 'banking',
+      title: 'Payments & Merchant Gateway',
+      desc: 'Online payment checkouts, payment links, gateway analytics, and merchant transaction records.',
+      icon: CreditCardIcon,
+      color: '#00D5FF',
+      badge: 'Zero PG Fee',
+      badgeColor: 'cyan',
+      actions: [
+        { label: 'View Payments', onClick: () => navigate('/app/payments') }
       ]
     },
     {
@@ -822,7 +877,7 @@ const CustomerServicesPage = () => {
       {/* ========================================================= */}
       {/* 4. MODAL: REWARDS & OFFERS SCRATCH CARD MODAL             */}
       {/* ========================================================= */}
-      {rewardsModalOpen && createPortal(
+      {rewardsModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setRewardsModalOpen(false)}
@@ -925,14 +980,13 @@ const CustomerServicesPage = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* 5. MODAL: PHONEPE-STYLE MY QR MODAL                        */}
       {/* ========================================================= */}
-      {qrModalOpen && createPortal(
+      {qrModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setQrModalOpen(false)}
@@ -1017,14 +1071,13 @@ const CustomerServicesPage = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* 6. MODAL: SCAN & PAY CAMERA SCANNER                       */}
       {/* ========================================================= */}
-      {scanPayModalOpen && createPortal(
+      {scanPayModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setScanPayModalOpen(false)}
@@ -1159,14 +1212,13 @@ const CustomerServicesPage = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* 7. MODAL: SIP WEALTH SIMULATOR MODAL                      */}
       {/* ========================================================= */}
-      {sipModalOpen && createPortal(
+      {sipModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setSipModalOpen(false)}
@@ -1338,8 +1390,7 @@ const CustomerServicesPage = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
     </DashboardLayout>
   );

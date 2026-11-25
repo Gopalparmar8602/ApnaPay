@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import DashboardLayout from '../../components/layout/DashboardLayout';
@@ -1225,7 +1224,7 @@ const CustomerProfilePage = () => {
       {/* ========================================================= */}
       {/* MODAL 1: MANAGE PROFILE DETAILS                           */}
       {/* ========================================================= */}
-      {profileModalOpen && createPortal(
+      {profileModalOpen && (
         <div className="admin-land-modal-overlay" onClick={() => setProfileModalOpen(false)}>
           <div className="admin-land-modal-container" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div className="admin-land-modal-header">
@@ -1271,14 +1270,13 @@ const CustomerProfilePage = () => {
               </div>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 2: CARDS MANAGEMENT (CREDIT & DEBIT)                 */}
       {/* ========================================================= */}
-      {cardsModalOpen && createPortal(
+      {cardsModalOpen && (
         <div className="admin-land-modal-overlay" onClick={() => setCardsModalOpen(false)}>
           <div className="admin-land-modal-container" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
             <div className="admin-land-modal-header">
@@ -1330,14 +1328,13 @@ const CustomerProfilePage = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 3: APNAPAY GIFT CARD                                */}
       {/* ========================================================= */}
-      {giftCardModalOpen && createPortal(
+      {giftCardModalOpen && (
         <div className="admin-land-modal-overlay" onClick={() => setGiftCardModalOpen(false)}>
           <div className="admin-land-modal-container" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div className="admin-land-modal-header">
@@ -1372,14 +1369,13 @@ const CustomerProfilePage = () => {
               </div>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 4: REFER & EARN ₹200                                */}
       {/* ========================================================= */}
-      {referModalOpen && createPortal(
+      {referModalOpen && (
         <div className="admin-land-modal-overlay" onClick={() => setReferModalOpen(false)}>
           <div className="admin-land-modal-container" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div className="admin-land-modal-header">
@@ -1414,14 +1410,13 @@ const CustomerProfilePage = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 5: ABOUT APNAPAY                                    */}
       {/* ========================================================= */}
-      {aboutModalOpen && createPortal(
+      {aboutModalOpen && (
         <div className="admin-land-modal-overlay" onClick={() => setAboutModalOpen(false)}>
           <div className="admin-land-modal-container" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div className="admin-land-modal-header">
@@ -1442,14 +1437,13 @@ const CustomerProfilePage = () => {
               </div>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 6: HELP & SUPPORT                                   */}
       {/* ========================================================= */}
-      {helpModalOpen && createPortal(
+      {helpModalOpen && (
         <div className="admin-land-modal-overlay" onClick={() => setHelpModalOpen(false)}>
           <div className="admin-land-modal-container" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div className="admin-land-modal-header">
@@ -1476,14 +1470,13 @@ const CustomerProfilePage = () => {
               </div>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 7: PREFERENCES & SECURITY MODAL                     */}
       {/* ========================================================= */}
-      {securityModalOpen && createPortal(
+      {securityModalOpen && (
         <div className="admin-land-modal-overlay" onClick={() => setSecurityModalOpen(false)}>
           <div className="admin-land-modal-container" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
             <div className="admin-land-modal-header">
@@ -1547,8 +1540,7 @@ const CustomerProfilePage = () => {
               })}
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
     </DashboardLayout>

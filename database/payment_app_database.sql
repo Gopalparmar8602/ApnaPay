@@ -15,6 +15,7 @@ CREATE TABLE users (
   phone VARCHAR(20) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'active',
+  gender VARCHAR(20) NULL,
   email_verified_at DATETIME NULL,
   phone_verified_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -64,9 +65,11 @@ CREATE TABLE kyc_records (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
   verification_status VARCHAR(30) NOT NULL DEFAULT 'pending',
+  status VARCHAR(30) NULL,
   provider_reference VARCHAR(150) NULL,
   verified_at DATETIME NULL,
   rejection_reason VARCHAR(255) NULL,
+  remarks VARCHAR(255) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ON UPDATE CURRENT_TIMESTAMP,
@@ -82,6 +85,21 @@ CREATE TABLE kyc_documents (
   document_status VARCHAR(30) NOT NULL DEFAULT 'pending',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (kyc_record_id) REFERENCES kyc_records(id)
+);
+
+CREATE TABLE IF NOT EXISTS kyc_history (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kyc_record_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  action VARCHAR(50) NOT NULL,
+  previous_status VARCHAR(50) NULL,
+  new_status VARCHAR(50) NOT NULL,
+  remarks TEXT NULL,
+  admin_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (kyc_record_id) REFERENCES kyc_records(id),
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  INDEX idx_kyc_history_record (kyc_record_id)
 );
 
 -- =====================================================
@@ -153,7 +171,9 @@ CREATE TABLE payments (
   amount DECIMAL(19,4) NOT NULL,
   currency CHAR(3) NOT NULL DEFAULT 'INR',
   status VARCHAR(30) NOT NULL DEFAULT 'initiated',
+  purpose VARCHAR(255) NULL,
   provider_reference VARCHAR(150) NULL,
+  provider_transaction_id VARCHAR(150) NULL,
   description VARCHAR(255) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -196,6 +216,7 @@ CREATE TABLE payment_attempts (
   UNIQUE KEY uq_payment_attempt (payment_id, attempt_number)
 );
 
+
 CREATE TABLE payment_methods (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
@@ -208,18 +229,50 @@ CREATE TABLE payment_methods (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
-CREATE TABLE qr_codes (
+CREATE TABLE IF NOT EXISTS qr_codes (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
-  qr_reference CHAR(36) NOT NULL UNIQUE,
+  public_id CHAR(36) NOT NULL UNIQUE,
+  qr_reference VARCHAR(80) NOT NULL UNIQUE,
+  qr_type ENUM('static', 'dynamic') NOT NULL DEFAULT 'static',
   upi_id VARCHAR(255) NULL,
-  fixed_amount DECIMAL(19,4) NULL,
+  fixed_amount DECIMAL(12,2) NULL,
   purpose VARCHAR(255) NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'active',
   expires_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id),
-  CHECK (fixed_amount IS NULL OR fixed_amount > 0)
+  INDEX idx_qr_reference (qr_reference)
+);
+
+CREATE TABLE qr_payment_requests (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    qr_id BIGINT UNSIGNED NOT NULL,
+    payer_user_id BIGINT UNSIGNED DEFAULT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    status ENUM('pending', 'paid', 'failed', 'cancelled')
+      DEFAULT 'pending',
+    reference_id VARCHAR(80) UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_qr_request (qr_id),
+    CONSTRAINT fk_request_qr
+      FOREIGN KEY (qr_id) REFERENCES qr_codes(id)
+);
+
+CREATE TABLE qr_transactions (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    request_id BIGINT UNSIGNED NOT NULL UNIQUE,
+    transaction_reference VARCHAR(80) NOT NULL UNIQUE,
+    amount DECIMAL(12,2) NOT NULL,
+    status ENUM('pending', 'success', 'failed')
+      DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_transaction_request
+      FOREIGN KEY (request_id)
+      REFERENCES qr_payment_requests(id)
 );
 
 CREATE TABLE refunds (
@@ -330,15 +383,20 @@ CREATE TABLE dispute_evidence (
 
 CREATE TABLE audit_logs (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  actor_type VARCHAR(20) NOT NULL,
+  admin_id BIGINT UNSIGNED NULL,
+  actor_type VARCHAR(20) NOT NULL DEFAULT 'admin',
   actor_id BIGINT UNSIGNED NULL,
   action VARCHAR(100) NOT NULL,
-  entity_type VARCHAR(60) NOT NULL,
+  target_table VARCHAR(80) NULL,
+  target_id BIGINT UNSIGNED NULL,
+  entity_type VARCHAR(60) NOT NULL DEFAULT 'system',
   entity_id BIGINT UNSIGNED NULL,
   ip_address VARCHAR(45) NULL,
+  diff_json JSON NULL,
   metadata JSON NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_audit_entity (entity_type, entity_id),
+  INDEX idx_audit_target (target_table, target_id),
   INDEX idx_audit_date (created_at)
 );
 
@@ -350,42 +408,65 @@ CREATE TABLE audit_logs (
 CREATE TABLE land_projects (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   project_name VARCHAR(150) NOT NULL,
+  title VARCHAR(150) NULL,
   description TEXT NULL,
   location VARCHAR(255) NULL,
-  unit_name VARCHAR(40) NOT NULL DEFAULT 'unit',
-  price_per_unit DECIMAL(19,4) NOT NULL,
-  status VARCHAR(30) NOT NULL DEFAULT 'active',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  CHECK (price_per_unit > 0)
+  zone VARCHAR(100) NULL,
+  plot_size_sqft DECIMAL(19,4) NULL,
+  price_per_sqft DECIMAL(19,4) NULL,
+  total_price DECIMAL(19,4) NULL,
+  unit_name VARCHAR(40) NOT NULL DEFAULT 'sqft',
+  price_per_unit DECIMAL(19,4) NOT NULL DEFAULT 1000.0000,
+  total_plots INT UNSIGNED NULL DEFAULT 20,
+  plots_sold INT UNSIGNED NULL DEFAULT 0,
+  status VARCHAR(30) NOT NULL DEFAULT 'AVAILABLE',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Seed data for Digital Land Projects
+INSERT INTO land_projects (id, project_name, title, description, location, zone, plot_size_sqft, price_per_sqft, total_price, total_plots, plots_sold, status)
+VALUES
+(1, 'Smart City Phase 1', 'Smart City Phase 1', 'Premium commercial & mixed-use digital plots', 'Sector 62, Noida Extension', 'Zone A - Commercial', 1200, 4500, 5400000, 50, 38, 'AVAILABLE'),
+(2, 'Cyber Hub Virtual Tech Plots', 'Cyber Hub Virtual Tech Plots', 'High-growth IT park digital real estate', 'Phase 5, DLF Gurugram', 'Zone B - Tech Special', 2500, 6800, 17000000, 30, 26, 'SOLD_OUT'),
+(3, 'Godrej Horizon Plots', 'Godrej Horizon Plots', 'Luxury residential digital plots with river view', 'Bandra Kurla Complex, Mumbai', 'Zone A - Commercial', 5000, 12500, 62500000, 10, 9, 'RESERVED'),
+(4, 'Green Valley Eco-Township', 'Green Valley Eco-Township', 'Eco-friendly plotted community', 'Devanahalli, North Bengaluru', 'Zone C - Residential Eco', 1500, 3200, 4800000, 80, 64, 'AVAILABLE')
+ON DUPLICATE KEY UPDATE status = VALUES(status);
 
 CREATE TABLE land_orders (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL,
-  project_id BIGINT UNSIGNED NOT NULL,
-  units DECIMAL(19,4) NOT NULL,
-  total_amount DECIMAL(19,4) NOT NULL,
+  user_id BIGINT UNSIGNED NULL,
+  user_name VARCHAR(120) NULL,
+  project_id BIGINT UNSIGNED NULL,
+  project_title VARCHAR(150) NULL,
+  plot_number VARCHAR(50) NULL,
+  order_type VARCHAR(50) NULL,
+  units DECIMAL(19,4) NOT NULL DEFAULT 1,
+  amount DECIMAL(19,4) NULL,
+  total_amount DECIMAL(19,4) NOT NULL DEFAULT 0,
   payment_id BIGINT UNSIGNED NULL,
-  status VARCHAR(30) NOT NULL DEFAULT 'pending',
+  status VARCHAR(30) NOT NULL DEFAULT 'COMPLETED',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (project_id) REFERENCES land_projects(id),
-  FOREIGN KEY (payment_id) REFERENCES payments(id),
-  CHECK (units > 0 AND total_amount > 0)
+  FOREIGN KEY (payment_id) REFERENCES payments(id)
 );
 
 CREATE TABLE land_holdings (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
-  project_id BIGINT UNSIGNED NOT NULL,
+  project_id BIGINT UNSIGNED NULL,
+  project_title VARCHAR(150) NULL,
+  plot_number VARCHAR(50) NULL,
+  plot_size_sqft DECIMAL(19,4) NULL,
+  invested_amount DECIMAL(19,4) NULL,
+  deed_certificate VARCHAR(100) NULL,
+  registry_date DATE NULL,
   units_owned DECIMAL(19,4) NOT NULL DEFAULT 0,
   average_purchase_price DECIMAL(19,4) NOT NULL DEFAULT 0,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_land_holding (user_id, project_id),
   FOREIGN KEY (user_id) REFERENCES users(id),
-  FOREIGN KEY (project_id) REFERENCES land_projects(id),
-  CHECK (units_owned >= 0)
+  FOREIGN KEY (project_id) REFERENCES land_projects(id)
 );
 
 CREATE TABLE land_valuations (
@@ -434,25 +515,80 @@ CREATE TABLE sip_plans (
 CREATE TABLE sip_installments (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   sip_plan_id BIGINT UNSIGNED NOT NULL,
+  installment_number INT UNSIGNED NOT NULL DEFAULT 1,
   due_date DATE NOT NULL,
   amount DECIMAL(19,4) NOT NULL,
   payment_id BIGINT UNSIGNED NULL,
   status VARCHAR(30) NOT NULL DEFAULT 'pending',
   paid_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (sip_plan_id) REFERENCES sip_plans(id),
   FOREIGN KEY (payment_id) REFERENCES payments(id),
-  UNIQUE KEY uq_sip_installment (sip_plan_id, due_date),
+  INDEX idx_sip_installment_plan (sip_plan_id, due_date),
   CHECK (amount > 0)
 );
 
+
+CREATE TABLE IF NOT EXISTS sip_mandates (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  sip_plan_id BIGINT UNSIGNED NOT NULL,
+  mandate_reference VARCHAR(80) NOT NULL UNIQUE,
+  mandate_type ENUM('enach', 'upi_autopay', 'other') NOT NULL,
+  bank_account_id BIGINT UNSIGNED NULL,
+  maximum_amount DECIMAL(19,4) NOT NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'pending',
+  expires_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (sip_plan_id) REFERENCES sip_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS sip_cancellations (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sip_plan_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NULL,
+  cancellation_reference VARCHAR(80) NOT NULL UNIQUE,
+  cancellation_reason VARCHAR(255) NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'requested',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sip_plan_id) REFERENCES sip_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS sip_transactions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sip_plan_id BIGINT UNSIGNED NOT NULL,
+  installment_id BIGINT UNSIGNED NULL,
+  transaction_reference VARCHAR(80) NOT NULL UNIQUE,
+  amount DECIMAL(19,4) NOT NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'success',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sip_plan_id) REFERENCES sip_plans(id),
+  FOREIGN KEY (installment_id) REFERENCES sip_installments(id)
+);
+
+-- Seed data for SIP products
+INSERT INTO sip_products (id, product_name, provider_name, risk_level, minimum_investment, status)
+VALUES 
+(1, 'HDFC Top 100 Large Cap Fund', 'HDFC Mutual Fund', 'low', 500.00, 'active'),
+(2, 'SBI Bluechip Large Cap Fund', 'SBI Mutual Fund', 'low', 500.00, 'active'),
+(3, 'ICICI Prudential Technology Fund', 'ICICI Prudential Mutual Fund', 'high', 1000.00, 'active'),
+(4, 'Axis Small Cap Fund', 'Axis Mutual Fund', 'very high', 500.00, 'active'),
+(5, 'Parag Parikh Flexi Cap Fund', 'PPFAS Mutual Fund', 'moderate', 1000.00, 'active')
+ON DUPLICATE KEY UPDATE status = 'active';
+
 CREATE TABLE investment_orders (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  order_reference VARCHAR(150) NULL,
   user_id BIGINT UNSIGNED NOT NULL,
   product_id BIGINT UNSIGNED NOT NULL,
   sip_plan_id BIGINT UNSIGNED NULL,
-  order_type VARCHAR(30) NOT NULL,
+  order_type VARCHAR(30) NOT NULL DEFAULT 'one_time',
+  investment_type VARCHAR(30) NULL DEFAULT 'one_time',
   amount DECIMAL(19,4) NOT NULL,
   provider_reference VARCHAR(150) NULL,
+  payment_status VARCHAR(30) NULL DEFAULT 'pending',
+  order_status VARCHAR(30) NULL DEFAULT 'pending_payment',
   status VARCHAR(30) NOT NULL DEFAULT 'pending',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id),
@@ -467,7 +603,7 @@ CREATE TABLE investment_orders (
 
 CREATE TABLE notifications (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NULL,
   title VARCHAR(150) NOT NULL,
   message TEXT NOT NULL,
   notification_type VARCHAR(40) NOT NULL,
@@ -497,6 +633,15 @@ CREATE TABLE admin_users (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Seed data for Admin Users
+INSERT INTO admin_users (id, name, email, password_hash, role_name, status)
+VALUES
+(1, 'Super Administrator', 'admin@apnapay.com', 'Admin@123', 'super_admin', 'active'),
+(2, 'Compliance Officer', 'compliance@apnapay.com', 'Admin@123', 'compliance_manager', 'active'),
+(3, 'Finance Admin', 'finance@apnapay.com', 'Admin@123', 'finance_lead', 'active')
+ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+
 CREATE TABLE roles_permissions (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   role_name VARCHAR(80) NOT NULL,
@@ -504,6 +649,49 @@ CREATE TABLE roles_permissions (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_role_permission (role_name, permission_key)
 );
+
+CREATE TABLE IF NOT EXISTS commission_rules (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  service_code VARCHAR(80) NOT NULL UNIQUE,
+  service_name VARCHAR(120) NOT NULL,
+  commission_type VARCHAR(20) NOT NULL DEFAULT 'percentage',
+  commission_value DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  min_amount DECIMAL(19,4) NOT NULL DEFAULT 0.00,
+  max_amount DECIMAL(19,4) NOT NULL DEFAULT 100000.00,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Seed data for Commission Rules
+INSERT INTO commission_rules (id, service_code, service_name, commission_type, commission_value, min_amount, max_amount, status)
+VALUES
+(1, 'MOBILE_RECHARGE', 'Prepaid Mobile Recharge', 'percentage', 2.50, 10.00, 5000.00, 'active'),
+(2, 'DTH_RECHARGE', 'DTH Satellite TV', 'percentage', 2.20, 50.00, 10000.00, 'active'),
+(3, 'ELECTRICITY_BILL', 'Electricity Bill BBPS', 'flat', 5.00, 100.00, 50000.00, 'active'),
+(4, 'WATER_BILL', 'Water Utility BBPS', 'flat', 3.00, 50.00, 20000.00, 'active'),
+(5, 'WALLET_TO_BANK', 'Wallet Payout to Bank Account', 'percentage', 1.50, 100.00, 100000.00, 'active'),
+(6, 'DIGITAL_LAND', 'Digital Land Registry Fee', 'percentage', 0.50, 100.00, 500000.00, 'active')
+ON DUPLICATE KEY UPDATE status = 'active';
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  setting_key VARCHAR(100) NOT NULL UNIQUE,
+  setting_value TEXT NOT NULL,
+  description VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Seed data for App Settings
+INSERT INTO app_settings (id, setting_key, setting_value, description)
+VALUES
+(1, 'maintenance_mode', 'false', 'Enable/disable temporary platform maintenance mode'),
+(2, 'min_transfer_amount', '10.00', 'Minimum single transfer allowed in INR'),
+(3, 'max_daily_transfer_limit', '100000.00', 'Maximum daily transfer volume per user in INR'),
+(4, 'kyc_mandatory_above', '10000.00', 'Mandatory KYC requirement threshold for transactions'),
+(5, 'auto_refund_window_hours', '48', 'Hours allowed for merchant refund processing')
+ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
 
 -- =====================================================
 -- 9. MOBILE RECHARGE & BILL PAYMENTS (7 TABLES)
@@ -550,6 +738,29 @@ CREATE TABLE recharge_orders (
   INDEX idx_recharge_user_date (user_id, created_at),
   CHECK (amount > 0)
 );
+
+
+-- Seed data for Recharge Operators
+INSERT INTO recharge_operators (id, operator_name, service_type, status)
+VALUES 
+(1, 'Jio Prepaid', 'prepaid', 'active'),
+(2, 'Airtel Prepaid', 'prepaid', 'active'),
+(3, 'Vodafone Idea (Vi)', 'prepaid', 'active'),
+(4, 'BSNL Prepaid', 'prepaid', 'active'),
+(5, 'Tata Play DTH', 'dth', 'active'),
+(6, 'Airtel Digital TV', 'dth', 'active')
+ON DUPLICATE KEY UPDATE status = 'active';
+
+-- Seed data for Recharge Plans
+INSERT INTO recharge_plans (id, operator_id, plan_name, amount, validity_days, benefits, status)
+VALUES 
+(1, 1, 'Jio 1.5GB/Day Truly Unlimited', 299.00, 28, '{"data": "1.5GB/day", "voice": "Unlimited Calls", "sms": "100/day"}', 'active'),
+(2, 1, 'Jio 2GB/Day + Unlimited 5G', 349.00, 28, '{"data": "2GB/day + 5G", "voice": "Unlimited Calls", "sms": "100/day"}', 'active'),
+(3, 1, 'Jio 3-Month Plan (84 Days)', 799.00, 84, '{"data": "1.5GB/day", "voice": "Unlimited Calls", "sms": "100/day"}', 'active'),
+(4, 2, 'Airtel Truly Unlimited 1.5GB/Day', 299.00, 28, '{"data": "1.5GB/day", "voice": "Unlimited Calls", "sms": "100/day"}', 'active'),
+(5, 2, 'Airtel 2GB/Day + OTT Pack', 399.00, 28, '{"data": "2GB/day", "voice": "Unlimited Calls", "sms": "100/day"}', 'active'),
+(6, 3, 'Vi Hero Unlimited 1.5GB/Day', 299.00, 28, '{"data": "1.5GB/day", "voice": "Unlimited Calls", "sms": "100/day"}', 'active')
+ON DUPLICATE KEY UPDATE status = 'active';
 
 CREATE TABLE bill_categories (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

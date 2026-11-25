@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import DashboardLayout from '../../components/layout/DashboardLayout';
@@ -227,9 +226,17 @@ const CustomerDashboardOverview = () => {
         setLandHoldingsSummary(holdingsRes.data.portfolioSummary);
       }
 
-      const fetchedBillers = billersRes?.data?.billers || [];
-      if (fetchedBillers.length > 0) {
-        setBillersList(fetchedBillers);
+      const rawBillers = Array.isArray(billersRes?.data)
+        ? billersRes.data
+        : (billersRes?.data?.billers || billersRes?.billers || []);
+      if (rawBillers.length > 0) {
+        setBillersList(
+          rawBillers.map((b) => ({
+            billerId: b.id || b.billerId || b.biller_code,
+            billerName: b.biller_name || b.billerName || 'Biller',
+            state: b.state || 'India'
+          }))
+        );
       } else {
         setBillersList([
           { billerId: 'MPPKVVCL-W', billerName: 'MPPKVVCL - West Discom', state: 'Madhya Pradesh' },
@@ -254,49 +261,57 @@ const CustomerDashboardOverview = () => {
   // Handle category switch in bill payments widget
   const handleCategoryChange = async (catKey) => {
     setActiveBillCategory(catKey);
+    setBillerSearch('');
     try {
       const res = await billService.getBillers(catKey, 1, 10);
-      const list = res?.data?.billers || [];
-      if (list.length > 0) {
-        setBillersList(list);
+      const rawList = Array.isArray(res?.data) ? res.data : (res?.data?.billers || res?.billers || []);
+      if (rawList.length > 0) {
+        setBillersList(
+          rawList.map((b) => ({
+            billerId: b.id || b.billerId || b.biller_code,
+            billerName: b.biller_name || b.billerName || 'Biller',
+            state: b.state || 'India'
+          }))
+        );
+        return;
+      }
+      if (catKey === 'water') {
+        setBillersList([
+          { billerId: 'DELHI-JAL-BOARD', billerName: 'Delhi Jal Board', state: 'Delhi' },
+          { billerId: 'BWSSB-BLR', billerName: 'Bangalore Water Supply (BWSSB)', state: 'Karnataka' },
+          { billerId: 'MCGM-WATER', billerName: 'MCGM Water Department', state: 'Mumbai' }
+        ]);
+      } else if (catKey === 'gas') {
+        setBillersList([
+          { billerId: 'IGL-GAS', billerName: 'Indraprastha Gas (IGL)', state: 'Delhi NCR' },
+          { billerId: 'MGL-GAS', billerName: 'Mahanagar Gas Limited (MGL)', state: 'Mumbai' },
+          { billerId: 'GUJ-GAS', billerName: 'Gujarat Gas Ltd', state: 'Gujarat' }
+        ]);
+      } else if (catKey === 'dth') {
+        setBillersList([
+          { billerId: 'TATA-PLAY', billerName: 'Tata Play (Sky)', state: 'National' },
+          { billerId: 'AIRTEL-DTH', billerName: 'Airtel Digital TV', state: 'National' },
+          { billerId: 'DISH-TV', billerName: 'Dish TV India', state: 'National' }
+        ]);
+      } else if (catKey === 'broadband') {
+        setBillersList([
+          { billerId: 'JIO-FIBER', billerName: 'JioFiber Broadband', state: 'All India' },
+          { billerId: 'AIRTEL-XTREME', billerName: 'Airtel Xstream Fiber', state: 'All India' },
+          { billerId: 'ACT-CORP', billerName: 'ACT Fibernet', state: 'Major Cities' }
+        ]);
+      } else if (catKey === 'mobile_postpaid') {
+        setBillersList([
+          { billerId: 'JIO-POSTPAID', billerName: 'Jio Postpaid Plus', state: 'All India' },
+          { billerId: 'AIRTEL-POSTPAID', billerName: 'Airtel Postpaid', state: 'All India' },
+          { billerId: 'VI-POSTPAID', billerName: 'Vi Postpaid', state: 'All India' }
+        ]);
       } else {
-        if (catKey === 'water') {
-          setBillersList([
-            { billerId: 'DELHI-JAL-BOARD', billerName: 'Delhi Jal Board', state: 'Delhi' },
-            { billerId: 'BWSSB-BLR', billerName: 'Bangalore Water Supply (BWSSB)', state: 'Karnataka' },
-            { billerId: 'MCGM-WATER', billerName: 'MCGM Water Department', state: 'Mumbai' }
-          ]);
-        } else if (catKey === 'gas') {
-          setBillersList([
-            { billerId: 'IGL-GAS', billerName: 'Indraprastha Gas (IGL)', state: 'Delhi NCR' },
-            { billerId: 'MGL-GAS', billerName: 'Mahanagar Gas Limited (MGL)', state: 'Mumbai' },
-            { billerId: 'GUJ-GAS', billerName: 'Gujarat Gas Ltd', state: 'Gujarat' }
-          ]);
-        } else if (catKey === 'dth') {
-          setBillersList([
-            { billerId: 'TATA-PLAY', billerName: 'Tata Play (Sky)', state: 'National' },
-            { billerId: 'AIRTEL-DTH', billerName: 'Airtel Digital TV', state: 'National' },
-            { billerId: 'DISH-TV', billerName: 'Dish TV India', state: 'National' }
-          ]);
-        } else if (catKey === 'broadband') {
-          setBillersList([
-            { billerId: 'JIO-FIBER', billerName: 'JioFiber Broadband', state: 'All India' },
-            { billerId: 'AIRTEL-XTREME', billerName: 'Airtel Xstream Fiber', state: 'All India' },
-            { billerId: 'ACT-CORP', billerName: 'ACT Fibernet', state: 'Major Cities' }
-          ]);
-        } else if (catKey === 'mobile_postpaid') {
-          setBillersList([
-            { billerId: 'JIO-POSTPAID', billerName: 'Jio Postpaid Plus', state: 'All India' },
-            { billerId: 'AIRTEL-POSTPAID', billerName: 'Airtel Postpaid', state: 'All India' },
-            { billerId: 'VI-POSTPAID', billerName: 'Vi Postpaid', state: 'All India' }
-          ]);
-        } else {
-          setBillersList([
-            { billerId: 'MPPKVVCL-W', billerName: 'MPPKVVCL - West Discom', state: 'Madhya Pradesh' },
-            { billerId: 'BSES-RAJ', billerName: 'BSES Rajdhani Power Ltd', state: 'Delhi' },
-            { billerId: 'TATA-PWR-MUM', billerName: 'Tata Power Electricity', state: 'Mumbai' }
-          ]);
-        }
+        setBillersList([
+          { billerId: 'MPPKVVCL-W', billerName: 'MPPKVVCL - West Discom', state: 'Madhya Pradesh' },
+          { billerId: 'BSES-RAJ', billerName: 'BSES Rajdhani Power Ltd', state: 'Delhi' },
+          { billerId: 'TATA-PWR-MUM', billerName: 'Tata Power Electricity', state: 'Mumbai' },
+          { billerId: 'ADANI-ELEC-MUM', billerName: 'Adani Electricity', state: 'Mumbai' }
+        ]);
       }
     } catch (_) { }
   };
@@ -305,7 +320,7 @@ const CustomerDashboardOverview = () => {
   const filteredBillers = billerSearch.trim()
     ? billersList.filter(
       (b) =>
-        b.billerName.toLowerCase().includes(billerSearch.toLowerCase()) ||
+        (b.billerName || b.biller_name || '').toLowerCase().includes(billerSearch.toLowerCase()) ||
         (b.state && b.state.toLowerCase().includes(billerSearch.toLowerCase()))
     )
     : billersList;
@@ -537,7 +552,12 @@ const CustomerDashboardOverview = () => {
       {/* ========================================================= */}
       <div className="money-transfers-section">
         <div className="money-transfers-header">
-          <div className="money-transfers-header-left">
+          <div
+            className="money-transfers-header-left"
+            onClick={() => navigate('/app/transfers')}
+            style={{ cursor: 'pointer' }}
+            title="Open Money Transfers Management"
+          >
             <h2 className="money-transfers-title-text" style={{ margin: 0, whiteSpace: 'nowrap' }}>
               Money Transfers
             </h2>
@@ -545,30 +565,51 @@ const CustomerDashboardOverview = () => {
               Instant 24x7
             </span>
           </div>
-          <button
-            onClick={() => {
-              setOnboardingStep(1);
-              setSelectedOnboardBank(null);
-              setOnboardingModalOpen(true);
-            }}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#00D5FF',
-              fontSize: '12px',
-              fontWeight: '700',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              whiteSpace: 'nowrap',
-              flexShrink: 0
-            }}
-          >
-            <ShieldIcon size={13} />
-            <span className="hide-on-mobile">+ Link Bank / Setup UPI</span>
-            <span className="show-on-mobile">+ Link Bank</span>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => navigate('/app/transfers')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#8BA2C1',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                whiteSpace: 'nowrap'
+              }}
+              title="View Money Transfer remittance history & management"
+            >
+              <span>Manage Transfers</span>
+              <ArrowRightIcon size={12} />
+            </button>
+            <button
+              onClick={() => {
+                setOnboardingStep(1);
+                setSelectedOnboardBank(null);
+                setOnboardingModalOpen(true);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#00D5FF',
+                fontSize: '12px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}
+            >
+              <ShieldIcon size={13} />
+              <span className="hide-on-mobile">+ Link Bank / Setup UPI</span>
+              <span className="show-on-mobile">+ Link Bank</span>
+            </button>
+          </div>
         </div>
 
         {/* 4 Circular Action Buttons in a Single Row */}
@@ -983,7 +1024,7 @@ const CustomerDashboardOverview = () => {
                 Escrow Wallet Linked
               </span>
               <button
-                onClick={() => setSipModalOpen(true)}
+                onClick={() => navigate('/app/sip')}
                 className="auth-button"
                 style={{
                   width: 'auto',
@@ -1047,7 +1088,9 @@ const CustomerDashboardOverview = () => {
               <div
                 key={cat.id}
                 onClick={() => {
-                  if (cat.isMore || cat.isSpecial) {
+                  if (cat.id === 'mobile_postpaid') {
+                    navigate('/app/recharge');
+                  } else if (cat.isMore || cat.isSpecial) {
                     navigate('/app/bills');
                   } else {
                     handleCategoryChange(cat.id);
@@ -1090,7 +1133,7 @@ const CustomerDashboardOverview = () => {
           </div>
 
           <div className="bill-widget-body">
-            {/* Column 1: Category Picker */}
+            {/* Column 1: Category Picker (Horizontal Scrollable on Mobile) */}
             <div className="bill-categories-col">
               {[
                 { id: 'electricity', label: 'Electricity', icon: ZapIcon },
@@ -1102,14 +1145,15 @@ const CustomerDashboardOverview = () => {
                 const Icon = c.icon;
                 const isActive = activeBillCategory === c.id;
                 return (
-                  <div
+                  <button
                     key={c.id}
+                    type="button"
                     onClick={() => handleCategoryChange(c.id)}
                     className={`bill-cat-item ${isActive ? 'active' : ''}`}
                   >
                     <Icon size={14} />
                     <span>{c.label}</span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -1124,35 +1168,43 @@ const CustomerDashboardOverview = () => {
                   type="text"
                   value={billerSearch}
                   onChange={(e) => setBillerSearch(e.target.value)}
-                  placeholder={`Search ${activeBillCategory} billers...`}
+                  placeholder={`Search ${activeBillCategory.replace('_', ' ')} billers...`}
                   className="biller-search-input"
                 />
               </div>
 
               <div className="biller-list-scroll">
-                {filteredBillers.map((biller) => (
-                  <div
-                    key={biller.billerId}
-                    onClick={() => navigate(`/app/bills?category=${activeBillCategory}&billerId=${biller.billerId}`)}
-                    className="biller-item-pill"
-                    title={`Pay ${biller.billerName}`}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                      <div className="biller-logo-badge">
-                        {biller.billerName.slice(0, 3)}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div className="biller-name-text">
-                          {biller.billerName}
+                {filteredBillers && filteredBillers.length > 0 ? (
+                  filteredBillers.map((biller) => (
+                    <div
+                      key={biller.billerId || biller.id || biller.biller_code}
+                      onClick={() => navigate(`/app/bills?category=${activeBillCategory}&billerId=${biller.billerId || biller.id || biller.biller_code}`)}
+                      className="biller-item-pill"
+                      title={`Pay ${biller.billerName || biller.biller_name}`}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <div className="biller-logo-badge">
+                          {(biller.billerName || biller.biller_name || 'BIL').slice(0, 3)}
                         </div>
-                        <div className="biller-state-text">
-                          {biller.state || 'India'}
+                        <div style={{ minWidth: 0 }}>
+                          <div className="biller-name-text">
+                            {biller.billerName || biller.biller_name}
+                          </div>
+                          <div className="biller-state-text">
+                            {biller.state || 'India'}
+                          </div>
                         </div>
                       </div>
+                      <ChevronRightIcon size={14} style={{ color: '#6B87A8', flexShrink: 0 }} />
                     </div>
-                    <ChevronRightIcon size={14} style={{ color: '#6B87A8', flexShrink: 0 }} />
+                  ))
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '20px 12px', color: '#A9BDD7', fontSize: '12.5px' }}>
+                    No billers found for "{billerSearch}".
                   </div>
-                ))}
+                )}
               </div>
             </div>
 
@@ -1161,15 +1213,19 @@ const CustomerDashboardOverview = () => {
               onClick={() => navigate('/app/bills')}
               className="bill-promo-card"
               title="Click to Pay Bills"
+              role="button"
+              tabIndex={0}
             >
               <div className="bill-promo-icon">
-                <ReceiptIcon size={24} />
+                <ReceiptIcon size={22} />
               </div>
-              <div className="bill-promo-title">
-                Pay Bills Anytime, Anywhere
-              </div>
-              <div className="bill-promo-sub">
-                Instant • Secure • Reliable
+              <div className="bill-promo-text-wrap" style={{ display: 'flex', flexDirection: 'column' }}>
+                <div className="bill-promo-title">
+                  Pay Bills Anytime, Anywhere
+                </div>
+                <div className="bill-promo-sub">
+                  Instant • Secure • Reliable
+                </div>
               </div>
             </div>
           </div>
@@ -1464,18 +1520,11 @@ const CustomerDashboardOverview = () => {
             { id: 'upi', title: 'UPI Services', desc: 'VPAs, QR and instant payments', icon: SmartphoneIcon, path: '/app/upi', color: '#00E599' },
             { id: 'wallet', title: 'Wallet & Ledger', desc: 'Escrow balance & settlements', icon: WalletIcon, path: '/app/wallet', color: '#00D5FF' },
             { id: 'bills', title: 'Bill Payments', desc: 'Electricity, Gas, Water & DTH', icon: ReceiptIcon, path: '/app/bills', color: '#F59E0B' },
-            { id: 'recharge', title: 'Mobile Recharge', desc: 'Prepaid & postpaid plans', icon: SmartphoneIcon, path: '/app/bills?category=mobile_postpaid', color: '#38BDF8' },
+            { id: 'recharge', title: 'Mobile Recharge', desc: 'Prepaid & postpaid plans', icon: SmartphoneIcon, path: '/app/recharge', color: '#38BDF8' },
             { id: 'txns', title: 'Transaction History', desc: 'Audit statements & receipts', icon: HistoryIcon, path: '/app/transactions', color: '#818CF8' },
             { id: 'land', title: 'Digital Land', desc: 'Fractional land parcel units', icon: LayersIcon, path: '/app/land', color: '#A855F7' },
-            {
-              id: 'sip',
-              title: 'SIP & Wealth',
-              desc: 'Systematic investment plans',
-              icon: TrendingUpIcon,
-              color: '#34D399',
-              onClick: () => setSipModalOpen(true)
-            },
-            { id: 'refunds', title: 'Refund & Disputes', desc: 'Track payment inquiries', icon: ShieldCheckIcon, path: '/app/transactions', color: '#FB7185' },
+            { id: 'sip', title: 'SIP & Wealth', desc: 'Systematic investment plans', icon: TrendingUpIcon, path: '/app/sip', color: '#34D399' },
+            { id: 'refunds', title: 'Refund & Disputes', desc: 'Track payment inquiries', icon: ShieldCheckIcon, path: '/app/disputes', color: '#FB7185' },
             { id: 'profile', title: 'Profile & KYC', desc: 'Security, limits and settings', icon: UserIcon, path: '/app/profile', color: '#94A3B8' }
           ].map((srv) => {
             const Icon = srv.icon;
@@ -1538,12 +1587,10 @@ const CustomerDashboardOverview = () => {
             Profile & Settings
           </button>
           <button
-            onClick={() => setInfoModal({
-              title: 'ApnaPay Help & Support',
-              content: 'For assistance with simulated payments, wallet escrow balances, or banking integrations in this demo environment, please review the Profile & KYC settings or contact support at support@apnapay.com.'
-            })}
+            onClick={() => navigate('/app/disputes')}
             className="auth-button secondary"
             style={{ width: 'auto', height: '34px', padding: '0 14px', fontSize: '12px', margin: 0 }}
+            title="Open Dispute & Refund Grievance Portal"
           >
             Help & Support
           </button>
@@ -1554,7 +1601,7 @@ const CustomerDashboardOverview = () => {
       {/* MODAL 1: GPAY-STYLE BANK & UPI ONBOARDING FLOW            */}
       {/* With Paytm-Style Optional Consent Checkboxes (Opt-in)     */}
       {/* ========================================================= */}
-      {onboardingModalOpen && createPortal(
+      {onboardingModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setOnboardingModalOpen(false)}
@@ -1898,14 +1945,13 @@ const CustomerDashboardOverview = () => {
               )}
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 2: PHONEPE-STYLE MY QR MODAL                        */}
       {/* ========================================================= */}
-      {qrModalOpen && createPortal(
+      {qrModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setQrModalOpen(false)}
@@ -2026,14 +2072,13 @@ const CustomerDashboardOverview = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 3: CHECK BALANCE MODAL                              */}
       {/* ========================================================= */}
-      {checkBalanceModalOpen && createPortal(
+      {checkBalanceModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setCheckBalanceModalOpen(false)}
@@ -2169,14 +2214,13 @@ const CustomerDashboardOverview = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 4: SCAN & PAY / CAMERA SCANNER SIMULATOR            */}
       {/* ========================================================= */}
-      {scanPayModalOpen && createPortal(
+      {scanPayModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setScanPayModalOpen(false)}
@@ -2323,14 +2367,13 @@ const CustomerDashboardOverview = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 5: INTERACTIVE SIP WEALTH PLANNING SIMULATOR        */}
       {/* ========================================================= */}
-      {sipModalOpen && createPortal(
+      {sipModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setSipModalOpen(false)}
@@ -2523,14 +2566,13 @@ const CustomerDashboardOverview = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 6: QUICK ADD MONEY MODAL                            */}
       {/* ========================================================= */}
-      {addMoneyModalOpen && createPortal(
+      {addMoneyModalOpen && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setAddMoneyModalOpen(false)}
@@ -2644,14 +2686,13 @@ const CustomerDashboardOverview = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* ========================================================= */}
       {/* MODAL 7: GENERAL INFO MODAL                               */}
       {/* ========================================================= */}
-      {infoModal && createPortal(
+      {infoModal && (
         <div
           className="admin-land-modal-overlay"
           onClick={() => setInfoModal(null)}
@@ -2706,8 +2747,7 @@ const CustomerDashboardOverview = () => {
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
     </DashboardLayout>
   );

@@ -31,5 +31,9 @@ router.post('/read/:id', notificationController.markAsRead);
 router.patch('/read', notificationController.markAsRead);
 router.post('/read', notificationController.markAsRead);
 
+// Notification Preferences
+router.get('/preferences', notificationController.getPreferences);
+router.get('/notification-preferences', notificationController.getPreferences);
+
 module.exports = router;
 

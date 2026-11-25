@@ -195,8 +195,13 @@ const CustomerBillsPage = () => {
         });
 
         setCategories(normalized);
-        // Default to electricity or first category
-        const defaultCat = normalized.find((c) => c.categoryKey === 'electricity') || normalized[0];
+        // Default to category from URL params, or electricity, or first category
+        const urlParams = new URLSearchParams(location.search);
+        const urlCat = urlParams.get('category');
+        const targetCat = urlCat
+          ? normalized.find((c) => c.categoryKey === urlCat || c.category_key === urlCat || c.name?.toLowerCase() === urlCat?.toLowerCase())
+          : null;
+        const defaultCat = targetCat || normalized.find((c) => c.categoryKey === 'electricity') || normalized[0];
         setSelectedCategory(defaultCat);
       }
     } catch (err) {
@@ -232,6 +237,21 @@ const CustomerBillsPage = () => {
       const res = await billService.getBillers(categoryKey);
       if (res?.data) {
         setBillers(res.data);
+        const urlParams = new URLSearchParams(location.search);
+        const urlBillerId = urlParams.get('billerId');
+        if (urlBillerId) {
+          const matched = res.data.find(
+            (b) =>
+              String(b.id) === String(urlBillerId) ||
+              String(b.biller_code) === String(urlBillerId) ||
+              String(b.billerId) === String(urlBillerId) ||
+              (b.biller_name && b.biller_name.toLowerCase().includes(urlBillerId.toLowerCase()))
+          );
+          if (matched) {
+            setSelectedBiller(matched);
+            return;
+          }
+        }
         if (res.data.length > 0) {
           setSelectedBiller(res.data[0]);
         }

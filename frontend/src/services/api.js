@@ -14,19 +14,26 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const isAdminRoute = config.url?.includes('/admin/');
-    
+
     if (isAdminRoute) {
       const adminToken = localStorage.getItem('apnapay_admin_token');
       if (adminToken) {
         config.headers.Authorization = `Bearer ${adminToken}`;
+      } else {
+        const userToken = localStorage.getItem('apnapay_token');
+        if (userToken) {
+          config.headers.Authorization = `Bearer ${userToken}`;
+        }
       }
     } else {
       const userToken = localStorage.getItem('apnapay_token');
-      if (userToken) {
-        config.headers.Authorization = `Bearer ${userToken}`;
+      const adminToken = localStorage.getItem('apnapay_admin_token');
+      const effectiveToken = userToken || adminToken;
+      if (effectiveToken) {
+        config.headers.Authorization = `Bearer ${effectiveToken}`;
       }
     }
-    
+
     return config;
   },
   (error) => Promise.reject(error)
@@ -37,7 +44,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    
+
     // Don't loop refresh requests
     if (originalRequest?.url?.includes('/refresh') || originalRequest?.url?.includes('/login')) {
       return Promise.reject(error);

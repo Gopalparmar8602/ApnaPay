@@ -22,7 +22,12 @@ import {
   QrCodeIcon,
   HelpCircleIcon,
   SparklesIcon,
-  GridIcon
+  GridIcon,
+  SendIcon,
+  CreditCardIcon,
+  SmartphoneIcon,
+  LayersIcon,
+  AlertCircleIcon
 } from '../Icons';
 
 const DashboardLayout = ({
@@ -84,6 +89,20 @@ const DashboardLayout = ({
       icon: WalletIcon
     },
     {
+      to: '/app/transfers',
+      label: 'Money Transfers',
+      icon: SendIcon,
+      badge: 'P2P',
+      badgeColor: 'blue'
+    },
+    {
+      to: '/app/payments',
+      label: 'Payments',
+      icon: CreditCardIcon,
+      badge: 'PG',
+      badgeColor: 'blue'
+    },
+    {
       to: '/app/banks',
       label: 'Bank Accounts',
       icon: BankIcon
@@ -94,6 +113,20 @@ const DashboardLayout = ({
       icon: ShieldIcon
     },
     {
+      to: '/app/qr',
+      label: 'QR Payments',
+      icon: QrCodeIcon,
+      badge: 'QR',
+      badgeColor: 'blue'
+    },
+    {
+      to: '/app/recharge',
+      label: 'Mobile Recharge',
+      icon: SmartphoneIcon,
+      badge: 'FAST',
+      badgeColor: 'blue'
+    },
+    {
       to: '/app/bills',
       label: 'Bill Payments',
       icon: ReceiptIcon,
@@ -101,16 +134,35 @@ const DashboardLayout = ({
       badgeColor: 'blue'
     },
     {
+      to: '/app/sip',
+      label: 'SIP & Wealth',
+      icon: TrendingUpIcon,
+      badge: 'INVEST',
+      badgeColor: 'green'
+    },
+    {
+      to: '/app/land',
+      label: 'Digital Land',
+      icon: LayersIcon,
+      badge: 'Active',
+      badgeColor: 'green'
+    },
+    {
       to: '/app/transactions',
       label: 'Transaction History',
       icon: HistoryIcon
     },
     {
-      to: '/app/land',
-      label: 'Digital Land',
-      icon: TrendingUpIcon,
-      badge: 'Active',
-      badgeColor: 'green'
+      to: '/app/disputes',
+      label: 'Dispute & Refunds',
+      icon: AlertCircleIcon,
+      badge: 'HELP',
+      badgeColor: 'blue'
+    },
+    {
+      to: '/app/kyc',
+      label: 'KYC Verification',
+      icon: ShieldCheckIcon
     },
     {
       to: '/app/profile',
@@ -120,6 +172,13 @@ const DashboardLayout = ({
   ];
 
   const searchableServices = [
+    { title: 'Money Transfers', path: '/app/transfers', desc: 'Instant 24x7 P2P & IMPS bank remittances' },
+    { title: 'Payments Gateway', path: '/app/payments', desc: 'Online checkout & merchant transactions' },
+    { title: 'QR Payments', path: '/app/qr', desc: 'Generate Bharat UPI QR codes & payment requests' },
+    { title: 'Mobile Recharge', path: '/app/recharge', desc: 'Prepaid & postpaid plans across Jio, Airtel, Vi, BSNL' },
+    { title: 'SIP & Wealth', path: '/app/sip', desc: 'Micro SIP plans starting from ₹10/day & mutual funds' },
+    { title: 'Dispute & Refunds', path: '/app/disputes', desc: '24-hour grievance SLA, track disputes & refunds' },
+    { title: 'KYC Verification', path: '/app/kyc', desc: 'RBI compliant identity, PAN, Aadhaar & video KYC' },
     { title: 'Wallet & Ledger', path: '/app/wallet', desc: 'Add money, view escrow ledger balance' },
     { title: 'Bank Accounts', path: '/app/banks', desc: 'Link Indian bank accounts with IFSC' },
     { title: 'UPI Services', path: '/app/upi', desc: 'Manage @apnapay UPI IDs and VPAs' },
@@ -277,6 +336,33 @@ const DashboardLayout = ({
               <LogOutIcon size={18} />
             </button>
           </div>
+
+          {/* Admin Console Link (matching Screenshot 1 & 2) */}
+          <Link
+            to="/admin"
+            onClick={() => setMobileOpen(false)}
+            className="sidebar-link"
+            style={{
+              marginTop: '8px',
+              padding: '8px 12px',
+              fontSize: '12.5px',
+              color: '#A9BDD7',
+              borderRadius: '8px',
+              border: '1px solid rgba(0, 168, 255, 0.2)',
+              background: 'rgba(7, 20, 38, 0.6)',
+              minHeight: '36px',
+              display: 'flex',
+              alignItems: 'center',
+              textDecoration: 'none'
+            }}
+            title="Open Admin Console"
+          >
+            <ShieldIcon size={16} />
+            <span style={{ fontWeight: '600' }}>Admin Console</span>
+            <span className="sidebar-badge blue" style={{ marginLeft: 'auto' }}>
+              ADMIN
+            </span>
+          </Link>
         </div>
       </aside>
 
