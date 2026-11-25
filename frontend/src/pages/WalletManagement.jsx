@@ -202,7 +202,7 @@ export default function WalletManagement() {
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "grid", placeItems: "center", zIndex: 999
         }}>
-          <div className="table-card" style={{ width: "480px", padding: "24px", background: "#0b1528", border: "1px solid #1f3557" }}>
+          <div className="table-card" style={{ width: "100%", maxWidth: "480px", margin: "16px", padding: "24px", background: "#0b1528", border: "1px solid #1f3557", boxSizing: "border-box" }}>
             <h3 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
               <Wallet size={20} color="#087cff" /> Manual Wallet Adjustment
             </h3>

@@ -5865,3 +5865,366 @@ button.sidebar-link.active svg {
   z-index: 1;
 }
 
+/* ==========================================================================
+   APNAPAY - COMPREHENSIVE RESPONSIVE DESIGN SYSTEM
+   Mobile (320px, 375px, 390px, 430px), Tablet (768px, 820px, 1024px), Desktop (1024px+)
+   ========================================================================== */
+
+/* 1. Global Viewport and Overflow Protection */
+html,
+body {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Stacking Hierarchy */
+.portal-top-navbar {
+  z-index: 950 !important;
+}
+
+.mobile-bottom-nav {
+  z-index: 900 !important;
+}
+
+/* 2. Responsive Tables (Smooth Horizontal Scroll without window stretch) */
+.table-wrapper,
+.table-card .table-wrapper,
+.table-responsive {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  display: block !important;
+}
+
+.users-table,
+.table-card table,
+.admin-table {
+  min-width: 600px;
+}
+
+/* 3. Universal Modal Protection (Keep inside screen frame, no overflow) */
+.admin-land-modal-overlay,
+.modal-overlay,
+div[style*="position: fixed"][style*="inset: 0"],
+div[style*="position: fixed"][style*="top: 0"][style*="bottom: 0"] {
+  z-index: 99999 !important;
+}
+
+.admin-land-modal-container,
+.modal-dialog,
+.modal-content,
+[role="dialog"] > div {
+  max-width: calc(100vw - 24px) !important;
+  max-height: calc(90vh - var(--sat, 0px) - var(--sab, 0px)) !important;
+  overflow-y: auto !important;
+  margin: auto !important;
+  box-sizing: border-box !important;
+}
+
+/* 4. Tablet Breakpoint (640px to 1023px) */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .portal-page-content,
+  .dashboard-content {
+    padding: 20px 20px calc(80px + var(--sab)) 20px !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 16px !important;
+  }
+
+  .overview-hero-row {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  .bottom-widgets-grid {
+    grid-template-columns: 1fr !important;
+    gap: 18px !important;
+  }
+
+  .all-services-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 14px !important;
+  }
+
+  .recharge-bills-grid {
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .portal-hamburger-btn {
+    display: inline-flex !important;
+  }
+
+  .mobile-close-btn {
+    display: flex !important;
+  }
+}
+
+/* 5. Mobile Breakpoint (<= 639px - 320px, 375px, 390px, 430px) */
+@media (max-width: 639px) {
+  .portal-page-content,
+  .dashboard-content {
+    padding: 12px 10px calc(76px + var(--sab)) 10px !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Hamburger & Close Buttons */
+  .portal-hamburger-btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 8px !important;
+    background: #0B1B32 !important;
+    border: 1px solid var(--border-color) !important;
+    color: #FFFFFF !important;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .mobile-close-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 8px;
+    background: rgba(23, 56, 93, 0.6) !important;
+    border: 1px solid var(--border-color) !important;
+    color: #FFFFFF !important;
+    cursor: pointer;
+    margin-left: auto;
+  }
+
+  /* Portal Top Navbar on Phone */
+  .portal-top-navbar {
+    padding: 0 10px !important;
+    min-height: 54px !important;
+    height: 54px !important;
+    gap: 8px !important;
+  }
+
+  .top-search-wrap {
+    display: flex !important;
+    flex: 1 !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .top-search-input {
+    height: 36px !important;
+    font-size: 13px !important;
+    padding: 0 10px 0 34px !important;
+    min-height: 36px !important;
+  }
+
+  .top-search-icon {
+    left: 10px !important;
+  }
+
+  /* Mobile Drawer Sidebar */
+  .portal-sidebar {
+    width: 280px !important;
+    max-width: 82vw !important;
+    z-index: 1000 !important;
+  }
+
+  .portal-backdrop {
+    z-index: 999 !important;
+  }
+
+  /* Single Column Card Stacks */
+  .stats-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .stat-card {
+    padding: 16px 14px !important;
+  }
+
+  .overview-hero-row {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
+  .bottom-widgets-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
+  .hero-banner {
+    padding: 16px 14px !important;
+    border-radius: 14px !important;
+  }
+
+  /* Money Transfers Section */
+  .money-transfers-section {
+    padding: 12px 10px !important;
+    margin-top: 12px !important;
+  }
+
+  .money-transfers-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 6px !important;
+  }
+
+  .money-transfers-title-text {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.2px !important;
+    white-space: nowrap !important;
+  }
+
+  .money-transfers-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 4px !important;
+  }
+
+  .money-transfer-circle-icon {
+    width: 44px !important;
+    height: 44px !important;
+  }
+
+  .money-transfer-title {
+    font-size: 10.5px !important;
+    line-height: 1.2 !important;
+    text-align: center !important;
+  }
+
+  /* Quick Bill Payment: Clean stack with horizontal category tabs */
+  .bill-widget-body {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .bill-categories-col {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 6px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: 4px !important;
+    scrollbar-width: none !important;
+  }
+
+  .bill-categories-col::-webkit-scrollbar {
+    display: none;
+  }
+
+  .bill-cat-item {
+    flex-shrink: 0 !important;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+  }
+
+  .biller-list-scroll {
+    max-height: 200px !important;
+    overflow-y: auto !important;
+  }
+
+  .bill-promo-card {
+    padding: 12px 14px !important;
+  }
+
+  /* Services Grids on Mobile */
+  .all-services-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .recharge-bills-grid {
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .recharge-bill-card {
+    padding: 10px 4px !important;
+  }
+
+  .recharge-bill-name {
+    font-size: 10.5px !important;
+  }
+
+  /* Touch-friendly Buttons and Inputs */
+  button,
+  .auth-button,
+  .btn-save,
+  .btn-cancel {
+    min-height: 38px !important;
+    font-size: 13px !important;
+  }
+
+  /* Modals on Mobile */
+  .admin-land-modal-container {
+    width: calc(100vw - 20px) !important;
+    max-width: 100% !important;
+    max-height: calc(88vh - var(--sat, 0px) - var(--sab, 0px)) !important;
+    margin: 8px auto !important;
+  }
+}
+
+/* 6. Extra Small Screens (<= 380px e.g. iPhone SE 320px - 375px) */
+@media (max-width: 380px) {
+  .portal-page-content,
+  .dashboard-content {
+    padding: 10px 8px calc(74px + var(--sab)) 8px !important;
+  }
+
+  .money-transfers-badge {
+    display: none !important;
+  }
+
+  .money-transfers-title-text {
+    font-size: 13px !important;
+  }
+
+  .money-transfer-circle-icon {
+    width: 40px !important;
+    height: 40px !important;
+  }
+
+  .money-transfer-title {
+    font-size: 9.5px !important;
+  }
+
+  .recharge-bills-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 6px !important;
+  }
+
+  .all-services-grid {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  .page-heading h1 {
+    font-size: 18px !important;
+  }
+
+  .portal-top-navbar {
+    padding: 0 8px !important;
+  }
+}
+
+

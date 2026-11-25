@@ -567,6 +567,7 @@ const CustomerDashboardOverview = () => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button
+              className="hide-on-mobile"
               onClick={() => navigate('/app/transfers')}
               style={{
                 background: 'transparent',
