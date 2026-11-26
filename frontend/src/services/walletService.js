@@ -39,6 +39,45 @@ const walletService = {
   getLimits: async () => {
     const response = await api.get('/wallet/limits');
     return response.data;
+  },
+
+  // 6. POST /api/wallet/add-money - Add funds to wallet (Instant top-up)
+  addMoney: async (amount, paymentMethod = 'UPI', extra = {}) => {
+    const response = await api.post('/wallet/add-money', {
+      amount,
+      paymentMethod,
+      ...extra
+    });
+    return response.data;
+  },
+
+  // 7. POST /api/wallet/withdraw - Withdraw funds to linked bank
+  withdraw: async (amount, bankName = 'Linked Bank Account', extra = {}) => {
+    const response = await api.post('/wallet/withdraw', {
+      amount,
+      bankName,
+      ...extra
+    });
+    return response.data;
+  },
+
+  // 8. POST /api/wallet/transfer - Wallet-to-wallet transfer
+  transfer: async ({ recipient, amount, note = '' }) => {
+    const response = await api.post('/wallet/transfer', {
+      recipient,
+      amount,
+      note
+    });
+    return response.data;
+  },
+
+  // 9. POST /api/wallet/link-bank - Quick link bank from Wallet Withdraw
+  quickLinkBank: async ({ bankName, ifscPrefix }) => {
+    const response = await api.post('/wallet/link-bank', {
+      bankName,
+      ifscPrefix
+    });
+    return response.data;
   }
 };
 

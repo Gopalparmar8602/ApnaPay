@@ -36,14 +36,15 @@ class BillPaymentController {
    */
   async getBillers(req, res) {
     try {
-      const { category, categoryId, page, limit, search } = req.query;
+      const { category, categoryId, page, limit, search, state } = req.query;
 
       const result = await billerService.getBillersByCategory({
         category,
         categoryId,
         page,
         limit,
-        search
+        search,
+        state
       });
 
       return res.status(200).json({

@@ -668,9 +668,9 @@ const CustomerDashboardOverview = () => {
           {/* 3. ApnaPay Wallet */}
           <button
             type="button"
-            onClick={() => setAddMoneyModalOpen(true)}
+            onClick={() => navigate('/app/kyc')}
             className="money-transfer-circle-card"
-            title="Add funds or manage ApnaPay escrow wallet"
+            title="Open ApnaPay Wallet & PhonePe-style e-KYC activation"
           >
             <div
               className="money-transfer-circle-icon"

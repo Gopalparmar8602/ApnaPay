@@ -123,6 +123,14 @@ const sendOtpEmail = async (email, otp, purpose = 'email_verification') => {
         emailSubject = `Your ApnaPay login verification code is ${otp}`;
         emailTitle = 'Login Verification';
         emailSubtitle = 'Use the 6-digit OTP below to securely verify and log in to your ApnaPay account:';
+    } else if (purpose === 'kyc_pan_verification') {
+        emailSubject = `Your ApnaPay PAN Verification OTP is ${otp}`;
+        emailTitle = 'PAN Card Verification';
+        emailSubtitle = 'You are verifying your PAN Card on ApnaPay. Use the 6-digit OTP below to authenticate:';
+    } else if (purpose === 'kyc_aadhaar_verification') {
+        emailSubject = `Your ApnaPay Aadhaar eKYC OTP is ${otp}`;
+        emailTitle = 'Aadhaar eKYC Verification';
+        emailSubtitle = 'You are authenticating your Aadhaar eKYC on ApnaPay. Use the 6-digit UIDAI OTP below:';
     } else if (purpose === 'email_verification' || purpose === 'register' || purpose === 'registration') {
         emailSubject = `Your ApnaPay verification code is ${otp}`;
         emailTitle = 'Verify Your ApnaPay Account';

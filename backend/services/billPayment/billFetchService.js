@@ -89,12 +89,17 @@ class BillFetchService {
     return {
       fetchReferenceId,
       fetchId: insertResult.insertId,
+      billerId: biller.id,
+      billerName: biller.billerName,
+      billerCode: biller.billerCode,
       biller: {
         id: biller.id,
         billerName: biller.billerName,
         billerCode: biller.billerCode,
         categoryName: biller.categoryName,
-        paramName: biller.paramName
+        paramName: biller.paramName,
+        state: biller.state,
+        regionName: biller.regionName
       },
       consumerNumber: cleanConsumerNumber,
       customerName: billData.customerName,
@@ -106,6 +111,7 @@ class BillFetchService {
       billPeriod: billData.billPeriod,
       billStatus: billData.billStatus,
       description: billData.description,
+      metadata: billData.metadata || {},
       expiresAt: expiresAt.toISOString(),
       expiresInSeconds: 1800,
       isPayable: !isPaid && billData.billAmount > 0,

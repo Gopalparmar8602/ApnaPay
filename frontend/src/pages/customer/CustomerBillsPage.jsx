@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import billService from '../../services/billService';
 import walletService from '../../services/walletService';
+import { ALL_INDIAN_STATES, buildAllDistrictsForCategory } from '../../data/indianLocations';
 import {
   ReceiptIcon,
   ZapIcon,
@@ -31,7 +32,8 @@ import {
   ChevronDownIcon,
   TrashIcon,
   DownloadIcon,
-  SmartphoneIcon
+  SmartphoneIcon,
+  MapPinIcon
 } from '../../components/Icons';
 
 // Category Icon Mapping (Lucide & Custom SVG icons)
@@ -102,6 +104,175 @@ const formatDate = (dateStr) => {
   }
 };
 
+// Comprehensive District to Electricity Discom Mapping across India
+const ALL_DISTRICTS_MAPPING = [
+  // Madhya Pradesh - West Discom (MPPKVVCL-W: Indore & Ujjain Region)
+  { name: 'Indore', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000234567' },
+  { name: 'Ujjain', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000345678' },
+  { name: 'Dewas', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000456789' },
+  { name: 'Dhar', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000567890' },
+  { name: 'Khargone', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000678901' },
+  { name: 'Khandwa', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000789012' },
+  { name: 'Ratlam', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000890123' },
+  { name: 'Mandsaur', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000901234' },
+  { name: 'Neemuch', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000912345' },
+  { name: 'Barwani', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000923456' },
+  { name: 'Jhabua', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000934567' },
+  { name: 'Alirajpur', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000945678' },
+  { name: 'Burhanpur', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000956789' },
+  { name: 'Agar Malwa', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000967890' },
+  { name: 'Shajapur', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-W', discomName: 'MPPKVVCL – West Discom', region: 'West Discom (Indore & Ujjain Region)', demoConsumer: '1000978901' },
+
+  // Madhya Pradesh - Central Discom (MPMKVVCL-C: Bhopal & Gwalior Region)
+  { name: 'Bhopal', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000234567' },
+  { name: 'Gwalior', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000345678' },
+  { name: 'Sehore', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000456789' },
+  { name: 'Vidisha', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000567890' },
+  { name: 'Raisen', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000678901' },
+  { name: 'Hoshangabad', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000789012' },
+  { name: 'Narmadapuram', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000789013' },
+  { name: 'Rajgarh', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000890123' },
+  { name: 'Betul', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000901234' },
+  { name: 'Guna', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000912345' },
+  { name: 'Shivpuri', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000923456' },
+  { name: 'Bhind', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000934567' },
+  { name: 'Morena', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000945678' },
+  { name: 'Sheopur', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000956789' },
+  { name: 'Datia', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000967890' },
+  { name: 'Ashoknagar', state: 'Madhya Pradesh', discomCode: 'MPMKVVCL-C', discomName: 'MPMKVVCL – Central Discom', region: 'Central Discom (Bhopal & Gwalior Region)', demoConsumer: '2000978901' },
+
+  // Madhya Pradesh - East Discom (MPPKVVCL-JBP: Jabalpur, Rewa & Sagar Region)
+  { name: 'Jabalpur', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000234567' },
+  { name: 'Rewa', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000345678' },
+  { name: 'Sagar', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000456789' },
+  { name: 'Satna', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000567890' },
+  { name: 'Katni', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000678901' },
+  { name: 'Chhindwara', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000789012' },
+  { name: 'Damoh', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000890123' },
+  { name: 'Shahdol', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000901234' },
+  { name: 'Singrauli', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000912345' },
+  { name: 'Sidhi', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000923456' },
+  { name: 'Seoni', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000934567' },
+  { name: 'Mandla', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000945678' },
+  { name: 'Narsinghpur', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000956789' },
+  { name: 'Panna', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000967890' },
+  { name: 'Chhatarpur', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000978901' },
+  { name: 'Tikamgarh', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000989012' },
+  { name: 'Dindori', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000990123' },
+  { name: 'Umaria', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000991234' },
+  { name: 'Anuppur', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000992345' },
+  { name: 'Niwari', state: 'Madhya Pradesh', discomCode: 'MPPKVVCL-JBP', discomName: 'MPPKVVCL-JBP – East Discom', region: 'East Discom (Jabalpur, Rewa & Sagar Region)', demoConsumer: '3000993456' },
+
+  // Delhi
+  { name: 'South Delhi', state: 'Delhi', discomCode: 'BSES-RAJ', discomName: 'BSES Rajdhani', region: 'South & West Delhi', demoConsumer: '100123456' },
+  { name: 'West Delhi', state: 'Delhi', discomCode: 'BSES-RAJ', discomName: 'BSES Rajdhani', region: 'South & West Delhi', demoConsumer: '100123457' },
+  { name: 'Dwarka', state: 'Delhi', discomCode: 'BSES-RAJ', discomName: 'BSES Rajdhani', region: 'South & West Delhi', demoConsumer: '100123458' },
+  { name: 'East Delhi', state: 'Delhi', discomCode: 'BSES-YAM', discomName: 'BSES Yamuna', region: 'East & Central Delhi', demoConsumer: '200123456' },
+  { name: 'Central Delhi', state: 'Delhi', discomCode: 'BSES-YAM', discomName: 'BSES Yamuna', region: 'East & Central Delhi', demoConsumer: '200123457' },
+  { name: 'North Delhi', state: 'Delhi', discomCode: 'TPDDL-DEL', discomName: 'Tata Power DDL', region: 'North & North-West Delhi', demoConsumer: '60001234567' },
+  { name: 'Rohini', state: 'Delhi', discomCode: 'TPDDL-DEL', discomName: 'Tata Power DDL', region: 'North & North-West Delhi', demoConsumer: '60001234568' },
+
+  // Maharashtra
+  { name: 'Mumbai Suburbs', state: 'Maharashtra', discomCode: 'ADANI-MUM', discomName: 'Adani Electricity Mumbai', region: 'Mumbai Suburban Area', demoConsumer: '100123456' },
+  { name: 'South Mumbai', state: 'Maharashtra', discomCode: 'TATAPOWER-MUM', discomName: 'Tata Power Mumbai', region: 'Mumbai City & Suburban', demoConsumer: '900000123456' },
+  { name: 'Pune', state: 'Maharashtra', discomCode: 'MSEDCL-MAHA', discomName: 'MSEDCL Mahavitaran', region: 'Rest of Maharashtra', demoConsumer: '100123456789' },
+  { name: 'Nagpur', state: 'Maharashtra', discomCode: 'MSEDCL-MAHA', discomName: 'MSEDCL Mahavitaran', region: 'Rest of Maharashtra', demoConsumer: '100123456790' },
+  { name: 'Nashik', state: 'Maharashtra', discomCode: 'MSEDCL-MAHA', discomName: 'MSEDCL Mahavitaran', region: 'Rest of Maharashtra', demoConsumer: '100123456791' },
+  { name: 'Thane', state: 'Maharashtra', discomCode: 'MSEDCL-MAHA', discomName: 'MSEDCL Mahavitaran', region: 'Rest of Maharashtra', demoConsumer: '100123456792' },
+
+  // Rajasthan
+  { name: 'Jaipur', state: 'Rajasthan', discomCode: 'JVVNL-RAJ', discomName: 'Jaipur Vidyut (JVVNL)', region: 'Jaipur & Eastern Rajasthan', demoConsumer: '210012345678' },
+  { name: 'Kota', state: 'Rajasthan', discomCode: 'JVVNL-RAJ', discomName: 'Jaipur Vidyut (JVVNL)', region: 'Jaipur & Eastern Rajasthan', demoConsumer: '210012345679' },
+  { name: 'Ajmer', state: 'Rajasthan', discomCode: 'AVVNL-RAJ', discomName: 'Ajmer Vidyut (AVVNL)', region: 'Ajmer & Central/Southern Rajasthan', demoConsumer: '310012345678' },
+  { name: 'Udaipur', state: 'Rajasthan', discomCode: 'AVVNL-RAJ', discomName: 'Ajmer Vidyut (AVVNL)', region: 'Ajmer & Central/Southern Rajasthan', demoConsumer: '310012345679' },
+  { name: 'Jodhpur', state: 'Rajasthan', discomCode: 'JDVVNL-RAJ', discomName: 'Jodhpur Vidyut (JdVVNL)', region: 'Jodhpur & Western Rajasthan', demoConsumer: '410012345678' },
+  { name: 'Bikaner', state: 'Rajasthan', discomCode: 'JDVVNL-RAJ', discomName: 'Jodhpur Vidyut (JdVVNL)', region: 'Jodhpur & Western Rajasthan', demoConsumer: '410012345679' },
+
+  // Gujarat
+  { name: 'Surat', state: 'Gujarat', discomCode: 'DGVCL-GUJ', discomName: 'Dakshin Gujarat (DGVCL)', region: 'South Gujarat', demoConsumer: '10023456789' },
+  { name: 'Vadodara', state: 'Gujarat', discomCode: 'MGVCL-GUJ', discomName: 'Madhya Gujarat (MGVCL)', region: 'Central Gujarat', demoConsumer: '20023456789' },
+  { name: 'Rajkot', state: 'Gujarat', discomCode: 'PGVCL-GUJ', discomName: 'Paschim Gujarat (PGVCL)', region: 'Saurashtra & Kutch', demoConsumer: '30023456789' },
+  { name: 'Ahmedabad', state: 'Gujarat', discomCode: 'UGVCL-GUJ', discomName: 'Uttar Gujarat (UGVCL)', region: 'North Gujarat', demoConsumer: '40023456789' },
+
+  // Karnataka
+  { name: 'Bengaluru Urban', state: 'Karnataka', discomCode: 'BESCOM-KA', discomName: 'BESCOM Bengaluru', region: 'Bengaluru & Central Karnataka', demoConsumer: '1000123456' },
+  { name: 'Bengaluru Rural', state: 'Karnataka', discomCode: 'BESCOM-KA', discomName: 'BESCOM Bengaluru', region: 'Bengaluru & Central Karnataka', demoConsumer: '1000123457' },
+
+  // Telangana
+  { name: 'Hyderabad', state: 'Telangana', discomCode: 'TSSPDCL-TG', discomName: 'TSSPDCL Hyderabad', region: 'Southern Telangana & Hyderabad', demoConsumer: '100123456' },
+  { name: 'Secunderabad', state: 'Telangana', discomCode: 'TSSPDCL-TG', discomName: 'TSSPDCL Hyderabad', region: 'Southern Telangana & Hyderabad', demoConsumer: '100123457' },
+
+  // Haryana
+  { name: 'Gurugram', state: 'Haryana', discomCode: 'DHBVN-HR', discomName: 'DHBVN Haryana', region: 'South & West Haryana', demoConsumer: '1000123456' },
+  { name: 'Faridabad', state: 'Haryana', discomCode: 'DHBVN-HR', discomName: 'DHBVN Haryana', region: 'South & West Haryana', demoConsumer: '1000123457' },
+  { name: 'Ambala', state: 'Haryana', discomCode: 'UHBVN-HR', discomName: 'UHBVN Haryana', region: 'North & East Haryana', demoConsumer: '2000123456' },
+  { name: 'Panchkula', state: 'Haryana', discomCode: 'UHBVN-HR', discomName: 'UHBVN Haryana', region: 'North & East Haryana', demoConsumer: '2000123457' }
+];
+
+// District / City mappings for Water, Gas & Municipal Taxes across India
+const WATER_DISTRICTS_MAPPING = [
+  { name: 'Indore', state: 'Madhya Pradesh', discomCode: 'IMC-WATER', discomName: 'Indore Municipal Corporation - Water', matchName: 'Indore Municipal', region: 'Indore Municipal Area', demoConsumer: '1002345678' },
+  { name: 'Bhopal', state: 'Madhya Pradesh', discomCode: 'IMC-WATER', discomName: 'MP Municipal Water (IMC/BMC)', matchName: 'Indore Municipal', region: 'Madhya Pradesh Urban Water', demoConsumer: '1002345679' },
+  { name: 'Jabalpur', state: 'Madhya Pradesh', discomCode: 'IMC-WATER', discomName: 'MP Municipal Water', matchName: 'Indore Municipal', region: 'Madhya Pradesh Urban Water', demoConsumer: '1002345680' },
+  { name: 'Gwalior', state: 'Madhya Pradesh', discomCode: 'IMC-WATER', discomName: 'MP Municipal Water', matchName: 'Indore Municipal', region: 'Madhya Pradesh Urban Water', demoConsumer: '1002345681' },
+  { name: 'New Delhi', state: 'Delhi', discomCode: 'DJB-DEL', discomName: 'Delhi Jal Board (DJB)', matchName: 'Delhi Jal Board', region: 'NCT of Delhi', demoConsumer: '1002345678' },
+  { name: 'South Delhi', state: 'Delhi', discomCode: 'DJB-DEL', discomName: 'Delhi Jal Board (DJB)', matchName: 'Delhi Jal Board', region: 'South Delhi Zone', demoConsumer: '1002345679' },
+  { name: 'Mumbai', state: 'Maharashtra', discomCode: 'MCGM-WATER', discomName: 'MCGM Water (Mumbai)', matchName: 'Greater Mumbai', region: 'Greater Mumbai', demoConsumer: '1002345678' },
+  { name: 'Pune', state: 'Maharashtra', discomCode: 'MCGM-WATER', discomName: 'Maharashtra Municipal Water', matchName: 'Greater Mumbai', region: 'Pune / Maharashtra Urban', demoConsumer: '1002345679' },
+  { name: 'Nagpur', state: 'Maharashtra', discomCode: 'MCGM-WATER', discomName: 'Maharashtra Municipal Water', matchName: 'Greater Mumbai', region: 'Nagpur / Maharashtra Urban', demoConsumer: '1002345680' },
+  { name: 'Bengaluru', state: 'Karnataka', discomCode: 'BWSSB-KA', discomName: 'BWSSB Bengaluru', matchName: 'Bangalore Water', region: 'Bengaluru Urban', demoConsumer: '1002345678' },
+  { name: 'Ahmedabad', state: 'Gujarat', discomCode: 'MCGM-WATER', discomName: 'Gujarat Municipal Water (AMC/BBPS)', matchName: 'Greater Mumbai', region: 'Ahmedabad & North Gujarat', demoConsumer: '1002345682' },
+  { name: 'Surat', state: 'Gujarat', discomCode: 'MCGM-WATER', discomName: 'Gujarat Municipal Water (SMC/BBPS)', matchName: 'Greater Mumbai', region: 'Surat & South Gujarat', demoConsumer: '1002345683' },
+  { name: 'Vadodara', state: 'Gujarat', discomCode: 'MCGM-WATER', discomName: 'Gujarat Municipal Water (VMC/BBPS)', matchName: 'Greater Mumbai', region: 'Vadodara & Central Gujarat', demoConsumer: '1002345684' },
+  { name: 'Rajkot', state: 'Gujarat', discomCode: 'MCGM-WATER', discomName: 'Gujarat Municipal Water (RMC/BBPS)', matchName: 'Greater Mumbai', region: 'Rajkot & Saurashtra', demoConsumer: '1002345685' },
+  { name: 'Jaipur', state: 'Rajasthan', discomCode: 'DJB-DEL', discomName: 'PHED Rajasthan Water', matchName: 'Delhi Jal Board', region: 'Jaipur & Eastern Rajasthan', demoConsumer: '1002345686' },
+  { name: 'Lucknow', state: 'Uttar Pradesh', discomCode: 'DJB-DEL', discomName: 'UP Jal Sansthan', matchName: 'Delhi Jal Board', region: 'Lucknow & Central UP', demoConsumer: '1002345687' },
+  { name: 'Noida', state: 'Uttar Pradesh', discomCode: 'DJB-DEL', discomName: 'Noida Jal Authority', matchName: 'Delhi Jal Board', region: 'Gautam Buddha Nagar (NCR)', demoConsumer: '1002345688' },
+  { name: 'Gurugram', state: 'Haryana', discomCode: 'DJB-DEL', discomName: 'GMDA Water Supply', matchName: 'Delhi Jal Board', region: 'Gurugram NCR', demoConsumer: '1002345689' },
+  { name: 'Hyderabad', state: 'Telangana', discomCode: 'BWSSB-KA', discomName: 'HMWSSB Hyderabad', matchName: 'Bangalore Water', region: 'Greater Hyderabad', demoConsumer: '1002345690' }
+];
+
+const GAS_DISTRICTS_MAPPING = [
+  { name: 'New Delhi / NCR', state: 'Delhi', discomCode: 'IGL-DEL', discomName: 'Indraprastha Gas Limited (IGL)', matchName: 'Indraprastha Gas', region: 'Delhi, Noida & Ghaziabad', demoConsumer: '1002345678' },
+  { name: 'Noida / Ghaziabad', state: 'Uttar Pradesh', discomCode: 'IGL-DEL', discomName: 'Indraprastha Gas Limited (IGL)', matchName: 'Indraprastha Gas', region: 'NCR Piped Gas', demoConsumer: '1002345679' },
+  { name: 'Gurugram', state: 'Haryana', discomCode: 'IGL-DEL', discomName: 'IGL / Haryana City Gas', matchName: 'Indraprastha Gas', region: 'Gurugram NCR', demoConsumer: '1002345680' },
+  { name: 'Mumbai / Thane', state: 'Maharashtra', discomCode: 'MGL-MUM', discomName: 'Mahanagar Gas Limited (MGL)', matchName: 'Mahanagar Gas', region: 'Mumbai Metropolitan Region', demoConsumer: '1002345678' },
+  { name: 'Pune', state: 'Maharashtra', discomCode: 'MGL-MUM', discomName: 'MGL / MNGL Piped Gas', matchName: 'Mahanagar Gas', region: 'Pune Region', demoConsumer: '1002345681' },
+  { name: 'Ahmedabad', state: 'Gujarat', discomCode: 'INDANE-GAS', discomName: 'Gujarat Gas / Indane', matchName: 'Indane Gas', region: 'Ahmedabad & North Gujarat', demoConsumer: '1002345682' },
+  { name: 'Surat', state: 'Gujarat', discomCode: 'BHARAT-GAS', discomName: 'Gujarat Gas / Bharat Gas', matchName: 'Bharat Gas', region: 'Surat & South Gujarat', demoConsumer: '1002345683' },
+  { name: 'Indore', state: 'Madhya Pradesh', discomCode: 'HP-GAS', discomName: 'Avantika / HP Gas', matchName: 'HP Gas', region: 'Indore & Malwa', demoConsumer: '1002345684' },
+  { name: 'Bhopal', state: 'Madhya Pradesh', discomCode: 'INDANE-GAS', discomName: 'Think Gas / Indane', matchName: 'Indane Gas', region: 'Bhopal & Central MP', demoConsumer: '1002345685' },
+  { name: 'Jaipur', state: 'Rajasthan', discomCode: 'BHARAT-GAS', discomName: 'Torrent / Bharat Gas', matchName: 'Bharat Gas', region: 'Jaipur Region', demoConsumer: '1002345686' },
+  { name: 'Bengaluru', state: 'Karnataka', discomCode: 'HP-GAS', discomName: 'GAIL / HP Gas', matchName: 'HP Gas', region: 'Bengaluru Urban', demoConsumer: '1002345687' },
+  { name: 'Hyderabad', state: 'Telangana', discomCode: 'INDANE-GAS', discomName: 'Bhagyanagar / Indane Gas', matchName: 'Indane Gas', region: 'Hyderabad Region', demoConsumer: '1002345688' }
+];
+
+const MUNICIPAL_DISTRICTS_MAPPING = [
+  { name: 'New Delhi', state: 'Delhi', discomCode: 'MCD-DEL', discomName: 'Municipal Corporation of Delhi (MCD)', matchName: 'Municipal Corporation of Delhi', region: 'Delhi Property Tax', demoConsumer: '1002345678' },
+  { name: 'Bengaluru', state: 'Karnataka', discomCode: 'BBMP-KA', discomName: 'BBMP Property Tax', matchName: 'Bruhat Bengaluru', region: 'Bengaluru Property Tax', demoConsumer: '1002345678' },
+  { name: 'Hyderabad', state: 'Telangana', discomCode: 'GHMC-TG', discomName: 'GHMC Property Tax', matchName: 'Greater Hyderabad', region: 'Hyderabad Property Tax', demoConsumer: '1002345678' },
+  { name: 'Ahmedabad', state: 'Gujarat', discomCode: 'MCD-DEL', discomName: 'Gujarat Municipal Tax (AMC/BBPS)', matchName: 'Municipal Corporation', region: 'Ahmedabad & Gujarat', demoConsumer: '1002345679' },
+  { name: 'Surat', state: 'Gujarat', discomCode: 'MCD-DEL', discomName: 'Gujarat Municipal Tax (SMC/BBPS)', matchName: 'Municipal Corporation', region: 'Surat & Gujarat', demoConsumer: '1002345680' },
+  { name: 'Indore', state: 'Madhya Pradesh', discomCode: 'MCD-DEL', discomName: 'Indore Municipal Tax (IMC)', matchName: 'Municipal Corporation', region: 'Indore & MP', demoConsumer: '1002345681' },
+  { name: 'Mumbai', state: 'Maharashtra', discomCode: 'BBMP-KA', discomName: 'BMC Municipal Property Tax', matchName: 'Bruhat Bengaluru', region: 'Mumbai Region', demoConsumer: '1002345682' },
+  { name: 'Jaipur', state: 'Rajasthan', discomCode: 'MCD-DEL', discomName: 'Jaipur Municipal Tax (JMC)', matchName: 'Municipal Corporation', region: 'Jaipur Region', demoConsumer: '1002345683' },
+  { name: 'Lucknow', state: 'Uttar Pradesh', discomCode: 'MCD-DEL', discomName: 'Lucknow Nagar Nigam', matchName: 'Municipal Corporation', region: 'Lucknow Region', demoConsumer: '1002345684' },
+  { name: 'Gurugram', state: 'Haryana', discomCode: 'MCD-DEL', discomName: 'MCG Gurugram Property Tax', matchName: 'Municipal Corporation', region: 'Gurugram NCR', demoConsumer: '1002345685' }
+];
+
+const LOCATION_BASED_CATEGORIES = ['electricity', 'water', 'gas', 'municipal-taxes'];
+
+const inferBillerState = (biller, categoryKey) => {
+  if (biller?.state && biller.state.toLowerCase() !== 'national') return biller.state;
+  const name = String(biller?.billerName || biller?.biller_name || '').toLowerCase();
+  if (name.includes('delhi') || name.includes('mcd') || name.includes('indraprastha') || name.includes('mtnl delhi')) return 'Delhi';
+  if (name.includes('indore') || name.includes('mppkvvcl') || name.includes('mpmkvvcl')) return 'Madhya Pradesh';
+  if (name.includes('mumbai') || name.includes('mcgm') || name.includes('mahanagar gas') || name.includes('msedcl')) return 'Maharashtra';
+  if (name.includes('bangalore') || name.includes('bengaluru') || name.includes('bbmp') || name.includes('bwssb') || name.includes('bescom')) return 'Karnataka';
+  if (name.includes('hyderabad') || name.includes('ghmc') || name.includes('tsspdcl')) return 'Telangana';
+  return categoryKey === 'electricity' ? (biller?.state || '') : 'National';
+};
+
 const CustomerBillsPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -116,6 +287,27 @@ const CustomerBillsPage = () => {
   const [selectedBiller, setSelectedBiller] = useState(null);
   const [billerSearch, setBillerSearch] = useState('');
   const [isBillerDropdownOpen, setIsBillerDropdownOpen] = useState(false);
+  const [selectedState, setSelectedState] = useState('ALL');
+  const [stateSearch, setStateSearch] = useState('');
+  const [isStateDropdownOpen, setIsStateDropdownOpen] = useState(false);
+
+  // District / City Auto-Resolution State
+  const [selectedDistrict, setSelectedDistrict] = useState(null);
+  const [districtSearch, setDistrictSearch] = useState('');
+  const [isDistrictDropdownOpen, setIsDistrictDropdownOpen] = useState(false);
+
+  const POPULAR_STATES = [
+    'ALL',
+    'Madhya Pradesh',
+    'Delhi',
+    'Maharashtra',
+    'Uttar Pradesh',
+    'Rajasthan',
+    'Gujarat',
+    'Karnataka',
+    'Telangana',
+    'Haryana'
+  ];
 
   // Form & Fetch State
   const [consumerNumber, setConsumerNumber] = useState('');
@@ -155,12 +347,20 @@ const CustomerBillsPage = () => {
   const [globalNotice, setGlobalNotice] = useState(null); // { type: 'success'|'error', message }
 
   const billerDropdownRef = useRef(null);
+  const districtDropdownRef = useRef(null);
+  const stateDropdownRef = useRef(null);
 
-  // Close biller dropdown on click outside
+  // Close dropdowns on click outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (billerDropdownRef.current && !billerDropdownRef.current.contains(e.target)) {
         setIsBillerDropdownOpen(false);
+      }
+      if (districtDropdownRef.current && !districtDropdownRef.current.contains(e.target)) {
+        setIsDistrictDropdownOpen(false);
+      }
+      if (stateDropdownRef.current && !stateDropdownRef.current.contains(e.target)) {
+        setIsStateDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -221,39 +421,39 @@ const CustomerBillsPage = () => {
     } catch (_) {}
   };
 
-  // 2. Load Billers whenever Category changes
+  // 2. Load ALL Billers for Category (filter by State on client for instant, accurate matching)
   useEffect(() => {
     if (selectedCategory?.categoryKey) {
-      loadBillers(selectedCategory.categoryKey);
+      loadBillers(selectedCategory.categoryKey, 'ALL');
     }
   }, [selectedCategory]);
 
-  const loadBillers = async (categoryKey) => {
+  const loadBillers = async (categoryKey, stateFilter = 'ALL') => {
     try {
       setSelectedBiller(null);
       setFetchedBill(null);
       setFetchError('');
       setInputError('');
-      const res = await billService.getBillers(categoryKey);
-      if (res?.data) {
-        setBillers(res.data);
+      const res = await billService.getBillers(categoryKey, 1, 100, '', stateFilter);
+      const list = res?.data?.billers || res?.data || [];
+      if (Array.isArray(list)) {
+        setBillers(list);
         const urlParams = new URLSearchParams(location.search);
         const urlBillerId = urlParams.get('billerId');
         if (urlBillerId) {
-          const matched = res.data.find(
+          const matched = list.find(
             (b) =>
               String(b.id) === String(urlBillerId) ||
               String(b.biller_code) === String(urlBillerId) ||
+              String(b.billerCode) === String(urlBillerId) ||
               String(b.billerId) === String(urlBillerId) ||
-              (b.biller_name && b.biller_name.toLowerCase().includes(urlBillerId.toLowerCase()))
+              (b.biller_name && b.biller_name.toLowerCase().includes(urlBillerId.toLowerCase())) ||
+              (b.billerName && b.billerName.toLowerCase().includes(urlBillerId.toLowerCase()))
           );
           if (matched) {
             setSelectedBiller(matched);
             return;
           }
-        }
-        if (res.data.length > 0) {
-          setSelectedBiller(res.data[0]);
         }
       }
     } catch (err) {
@@ -311,7 +511,99 @@ const CustomerBillsPage = () => {
     setFetchError('');
     setBillerSearch('');
     setIsBillerDropdownOpen(false);
+    setSelectedState('ALL');
+    setStateSearch('');
+    setIsStateDropdownOpen(false);
+    setSelectedDistrict(null);
+    setDistrictSearch('');
+    setIsDistrictDropdownOpen(false);
   };
+
+  // Handle District / City selection
+  const handleSelectDistrict = (distItem) => {
+    setSelectedDistrict(distItem.name);
+
+    // 1. If currently in another state, switch state to match
+    if (distItem.state && selectedState !== distItem.state && selectedState !== 'ALL') {
+      setSelectedState(distItem.state);
+    }
+
+    // 2. Find matching biller from current list
+    const matched = billers.find(
+      (b) =>
+        b.billerCode === distItem.discomCode ||
+        b.biller_code === distItem.discomCode ||
+        (distItem.matchName && (b.billerName || b.biller_name || '').toLowerCase().includes(distItem.matchName.toLowerCase())) ||
+        (Array.isArray(b.districts) && b.districts.some((d) => d.toLowerCase() === distItem.name.toLowerCase()))
+    );
+
+    if (matched) {
+      setSelectedBiller(matched);
+    } else if (billers.length > 0) {
+      setSelectedBiller(billers[0]);
+    }
+
+    // 3. Pre-fill authentic demo consumer number for this provider
+    if (distItem.demoConsumer) {
+      setConsumerNumber(distItem.demoConsumer);
+      setInputError('');
+    }
+
+    setIsDistrictDropdownOpen(false);
+    setDistrictSearch('');
+    setFetchedBill(null);
+    setFetchError('');
+  };
+
+  // Clear District filter
+  const handleClearDistrict = () => {
+    setSelectedDistrict(null);
+    setDistrictSearch('');
+    setIsDistrictDropdownOpen(false);
+  };
+
+  // Active category location config
+  const activeCatKey = String(selectedCategory?.categoryKey || '').toLowerCase();
+  const isLocationCategory = LOCATION_BASED_CATEGORIES.includes(activeCatKey);
+
+  const activeDistrictList = React.useMemo(() => {
+    const base =
+      activeCatKey === 'water'
+        ? WATER_DISTRICTS_MAPPING
+        : activeCatKey === 'gas'
+        ? GAS_DISTRICTS_MAPPING
+        : activeCatKey === 'municipal-taxes'
+        ? MUNICIPAL_DISTRICTS_MAPPING
+        : ALL_DISTRICTS_MAPPING;
+    return buildAllDistrictsForCategory(activeCatKey, base);
+  }, [activeCatKey]);
+
+  const filteredStatesForSearch = React.useMemo(() => {
+    const q = stateSearch.trim().toLowerCase();
+    if (!q) return ALL_INDIAN_STATES;
+    return ALL_INDIAN_STATES.filter((st) =>
+      st === 'ALL' ? 'all states india'.includes(q) : st.toLowerCase().includes(q)
+    );
+  }, [stateSearch]);
+
+  // Synchronize District selection when billers list updates
+  useEffect(() => {
+    if (selectedDistrict && billers.length > 0) {
+      const match = activeDistrictList.find((d) => d.name.toLowerCase() === selectedDistrict.toLowerCase());
+      if (match) {
+        const matchedBiller = billers.find(
+          (b) =>
+            b.billerCode === match.discomCode ||
+            b.biller_code === match.discomCode ||
+            (match.matchName && (b.billerName || b.biller_name || '').toLowerCase().includes(match.matchName.toLowerCase())) ||
+            (Array.isArray(b.districts) && b.districts.some((d) => d.toLowerCase() === match.name.toLowerCase()))
+        );
+        if (matchedBiller && (!selectedBiller || selectedBiller.id !== matchedBiller.id)) {
+          setSelectedBiller(matchedBiller);
+        }
+      }
+    }
+  }, [billers, selectedDistrict, activeDistrictList]);
 
   // Handle Biller selection
   const handleSelectBiller = (biller) => {
@@ -320,6 +612,14 @@ const CustomerBillsPage = () => {
     setFetchedBill(null);
     setFetchError('');
     setInputError('');
+
+    // If selected biller does not cover current district, reset district
+    if (selectedDistrict && Array.isArray(biller.districts)) {
+      const covers = biller.districts.some((d) => d.toLowerCase() === selectedDistrict.toLowerCase());
+      if (!covers) {
+        setSelectedDistrict(null);
+      }
+    }
   };
 
   // Quick Pay from Favorite
@@ -439,10 +739,17 @@ const CustomerBillsPage = () => {
   const handlePayBill = async () => {
     if (!fetchedBill || !fetchedBill.fetchReferenceId) return;
 
+    // Haptic vibration feedback on payment initiation
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try {
+        navigator.vibrate([100, 50, 100]);
+      } catch (_) {}
+    }
+
     // Check wallet balance if in WALLET mode
     if (paymentMode === 'WALLET') {
       if (walletBalance !== null && walletBalance < fetchedBill.billAmount) {
-        setFetchError(`Insufficient wallet balance (${formatINR(walletBalance)}). Please choose Demo Mode or top up your wallet.`);
+        setFetchError(`Insufficient wallet balance (${formatINR(walletBalance)}). Please choose Demo Sandbox Mode or top up your wallet.`);
         return;
       }
       if (!paymentPin || paymentPin.length < 4) {
@@ -458,7 +765,9 @@ const CustomerBillsPage = () => {
       // 1. Client-Side Server Validation Call
       await billService.validateBill({
         fetchReferenceId: fetchedBill.fetchReferenceId,
-        billAmount: fetchedBill.billAmount
+        billerId: selectedBiller.id,
+        consumerNumber: consumerNumber.trim(),
+        amount: fetchedBill.billAmount
       });
 
       // 2. Generate client-side idempotency key for network resilience
@@ -476,6 +785,13 @@ const CustomerBillsPage = () => {
       };
 
       const res = await billService.payBill(paymentPayload);
+
+      // Haptic vibration feedback on payment success
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          navigator.vibrate([80, 40, 120]);
+        } catch (_) {}
+      }
 
       // 4. Save Favorite if requested
       if (saveAsFavorite) {
@@ -504,6 +820,11 @@ const CustomerBillsPage = () => {
       setSaveAsFavorite(false);
       setFavoriteNickname('');
     } catch (err) {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          navigator.vibrate([150, 80, 150]);
+        } catch (_) {}
+      }
       const msg = err.response?.data?.message || 'Payment execution failed. Please try again.';
       setFetchError(msg);
     } finally {
@@ -531,11 +852,129 @@ const CustomerBillsPage = () => {
     setTimeout(() => setCopiedTxn(false), 2500);
   };
 
-  // Filtered billers in dropdown
-  const filteredBillers = billers.filter((b) =>
-    b.billerName.toLowerCase().includes(billerSearch.toLowerCase()) ||
-    (b.billerCode && b.billerCode.toLowerCase().includes(billerSearch.toLowerCase()))
-  );
+  // Fill sample demo consumer number
+  const handleFillDemoNumber = (type) => {
+    if (!selectedBiller) return;
+    const param = selectedBiller.customerParameter || {};
+    const minLen = param.minLength || selectedBiller.paramMinLength || 10;
+    const maxLen = param.maxLength || selectedBiller.paramMaxLength || 10;
+    const targetLen = minLen;
+    const bCode = (selectedBiller.billerCode || selectedBiller.biller_code || '').toUpperCase();
+
+    let sample = '';
+    if (type === 'standard') {
+      if (bCode === 'MPPKVVCL-W') {
+        sample = '1000234567'; // 10-digit IVRS for West Discom (Indore)
+      } else if (bCode === 'MPMKVVCL-C') {
+        sample = '2000345678'; // 10-digit IVRS for Central Discom (Bhopal)
+      } else if (bCode === 'MPPKVVCL-JBP') {
+        sample = '3000456789'; // 10-digit IVRS for East Discom (Jabalpur)
+      } else if (bCode === 'BSES-RAJ' || bCode === 'BSES-YAM') {
+        sample = '100123456'; // 9-digit CA
+      } else if (bCode === 'TPDDL-DEL') {
+        sample = '60001234567'; // 11-digit CA
+      } else if (bCode === 'ADANI-MUM') {
+        sample = '100123456'; // 9-digit CA
+      } else {
+        const seed = '100234567890';
+        sample = seed.slice(0, targetLen).padEnd(targetLen, '7');
+      }
+    } else if (type === 'overdue') {
+      const prefix = '100000000000'.slice(0, Math.max(0, targetLen - 4));
+      sample = prefix + '9999';
+      if (sample.length < targetLen) sample = sample.padEnd(targetLen, '9');
+    } else if (type === 'paid') {
+      const prefix = '100000000000'.slice(0, Math.max(0, targetLen - 4));
+      sample = prefix + '0000';
+      if (sample.length < targetLen) sample = sample.padEnd(targetLen, '0');
+    } else if (type === 'fail') {
+      sample = 'FAIL999999'.slice(0, maxLen);
+    }
+
+    setConsumerNumber(sample);
+    validateConsumerInput(sample);
+  };
+
+  // Filtered billers in dropdown (supports search by name, code, state, regionName, and districts)
+  const filteredBillers = React.useMemo(() => {
+    const term = billerSearch.toLowerCase().trim();
+    const matchesSearch = (b) => {
+      if (!term) return true;
+      const name = b.billerName || b.biller_name || '';
+      const code = b.billerCode || b.biller_code || '';
+      const state = inferBillerState(b, activeCatKey);
+      const region = b.regionName || b.region_name || '';
+      const districts = Array.isArray(b.districts) ? b.districts.join(' ') : (b.districts || '');
+      return (
+        name.toLowerCase().includes(term) ||
+        code.toLowerCase().includes(term) ||
+        state.toLowerCase().includes(term) ||
+        region.toLowerCase().includes(term) ||
+        districts.toLowerCase().includes(term)
+      );
+    };
+
+    const byState = billers.filter((b) => {
+      const state = inferBillerState(b, activeCatKey);
+      const stateMatch =
+        !isLocationCategory ||
+        selectedState === 'ALL' ||
+        state.toLowerCase() === selectedState.toLowerCase() ||
+        (activeCatKey === 'gas' && state === 'National');
+      return stateMatch && matchesSearch(b);
+    });
+
+    if (byState.length > 0 || !isLocationCategory || selectedState === 'ALL') {
+      return byState;
+    }
+    // Fallback to compatible providers if state has no dedicated DB biller
+    return billers.filter(matchesSearch);
+  }, [billers, billerSearch, selectedState, isLocationCategory, activeCatKey]);
+
+  // Filtered districts for searchable district dropdown (filtered by selectedState + districtSearch)
+  const filteredDistrictsForSearch = activeDistrictList.filter((d) => {
+    const stateOk = selectedState === 'ALL' || d.state.toLowerCase() === selectedState.toLowerCase();
+    if (!districtSearch.trim()) return stateOk;
+    const term = districtSearch.toLowerCase().trim();
+    return (
+      d.name.toLowerCase().includes(term) ||
+      d.state.toLowerCase().includes(term) ||
+      d.discomName.toLowerCase().includes(term) ||
+      d.region.toLowerCase().includes(term)
+    );
+  });
+
+  // Dynamic quick district pills based on selected category & state
+  const quickDistrictPills = React.useMemo(() => {
+    if (!isLocationCategory) return [];
+    if (activeCatKey !== 'electricity') {
+      if (selectedState !== 'ALL') {
+        return activeDistrictList.filter((d) => d.state.toLowerCase() === selectedState.toLowerCase());
+      }
+      return activeDistrictList;
+    }
+    if (selectedState === 'Madhya Pradesh') {
+      return ALL_DISTRICTS_MAPPING.filter((d) => d.state === 'Madhya Pradesh');
+    }
+    if (selectedState !== 'ALL') {
+      return ALL_DISTRICTS_MAPPING.filter((d) => d.state.toLowerCase() === selectedState.toLowerCase());
+    }
+    // Key hubs across states when 'ALL' is selected
+    return [
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Indore'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Bhopal'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Jabalpur'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Gwalior'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Ujjain'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'South Delhi'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Mumbai Suburbs'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Pune'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Jaipur'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Surat'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Bengaluru Urban'),
+      ALL_DISTRICTS_MAPPING.find((d) => d.name === 'Hyderabad')
+    ].filter(Boolean);
+  }, [selectedState, activeCatKey, isLocationCategory, activeDistrictList]);
 
   return (
     <DashboardLayout
@@ -766,55 +1205,299 @@ const CustomerBillsPage = () => {
               </div>
 
               <form onSubmit={handleFetchBill}>
+                {/* State / Region & District / City Dropdowns (Location-based categories only) */}
+                {isLocationCategory ? (
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: selectedDistrict ? '12px' : '0' }}>
+                      {/* Dropdown 1: Filter by State / Region (Searchable All-India Dropdown) */}
+                      <div style={{ position: 'relative' }} ref={stateDropdownRef}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <label style={{ fontSize: '12px', fontWeight: '600', color: '#A9BDD7' }}>
+                            Filter by State / Region
+                          </label>
+                          <span style={{ fontSize: '11px', color: '#00D5FF' }}>
+                            {filteredBillers.length} Providers Available
+                          </span>
+                        </div>
+
+                        <div
+                          onClick={() => setIsStateDropdownOpen(!isStateDropdownOpen)}
+                          style={{
+                            height: '46px',
+                            background: '#071426',
+                            border: '1px solid #17385D',
+                            borderRadius: '8px',
+                            padding: '0 14px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            color: selectedState === 'ALL' ? '#6B87A8' : '#FFFFFF'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            <MapPinIcon size={15} style={{ color: '#00D5FF', flexShrink: 0 }} />
+                            <span style={{ fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: selectedState === 'ALL' ? '#6B87A8' : '#FFFFFF' }}>
+                              {selectedState === 'ALL' ? 'Select States (All India)...' : selectedState}
+                            </span>
+                          </div>
+                          <ChevronDownIcon size={16} />
+                        </div>
+
+                        {isStateDropdownOpen && (
+                          <div
+                            className="biller-select-menu"
+                            style={{ maxHeight: '280px', zIndex: 75 }}
+                          >
+                            {/* Search input inside State dropdown */}
+                            <div style={{ padding: '8px', borderBottom: '1px solid #17385D', position: 'sticky', top: 0, background: '#0B1B32', zIndex: 2 }}>
+                              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '36px' }}>
+                                <SearchIcon size={14} style={{ position: 'absolute', left: '10px', color: '#6B87A8', pointerEvents: 'none' }} />
+                                <input
+                                  type="text"
+                                  placeholder="Search State or Union Territory..."
+                                  value={stateSearch}
+                                  onChange={(e) => setStateSearch(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  autoFocus
+                                  style={{
+                                    width: '100%',
+                                    height: '36px',
+                                    background: '#071426',
+                                    border: '1px solid #17385D',
+                                    borderRadius: '7px',
+                                    padding: '0 10px 0 32px',
+                                    fontSize: '12px',
+                                    color: '#FFFFFF',
+                                    outline: 'none',
+                                    margin: 0
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            {filteredStatesForSearch.length === 0 ? (
+                              <div style={{ padding: '14px', fontSize: '12px', color: '#6B87A8', textAlign: 'center' }}>
+                                No states found matching "{stateSearch}".
+                              </div>
+                            ) : (
+                              filteredStatesForSearch.map((st) => {
+                                const isActive = selectedState === st;
+                                return (
+                                  <div
+                                    key={st}
+                                    onClick={() => {
+                                      setSelectedState(st);
+                                      setIsStateDropdownOpen(false);
+                                      setStateSearch('');
+                                      if (selectedDistrict) {
+                                        const dMatch = activeDistrictList.find((d) => d.name.toLowerCase() === selectedDistrict.toLowerCase());
+                                        if (dMatch && st !== 'ALL' && dMatch.state.toLowerCase() !== st.toLowerCase()) {
+                                          setSelectedDistrict(null);
+                                        }
+                                      }
+                                    }}
+                                    className={`biller-select-item ${isActive ? 'selected' : ''}`}
+                                    style={{ padding: '9px 12px' }}
+                                  >
+                                    <span style={{ fontSize: '13px', fontWeight: isActive ? '700' : '500', color: '#FFFFFF' }}>
+                                      {st === 'ALL' ? 'All States (All India)' : st}
+                                    </span>
+                                    {isActive && <CheckIcon size={14} style={{ color: '#00D5FF' }} />}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Dropdown 2: Select District / City (Searchable Dropdown) */}
+                      <div style={{ position: 'relative' }} ref={districtDropdownRef}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <label style={{ fontSize: '12px', fontWeight: '600', color: '#A9BDD7' }}>
+                            Select District / City
+                          </label>
+                          {selectedDistrict ? (
+                            <button
+                              type="button"
+                              onClick={handleClearDistrict}
+                              style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: '11px', fontWeight: '700', cursor: 'pointer', padding: 0 }}
+                            >
+                              ✕ Clear
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: '11px', color: '#6B87A8' }}>Auto-resolves provider</span>
+                          )}
+                        </div>
+
+                        <div
+                          onClick={() => setIsDistrictDropdownOpen(!isDistrictDropdownOpen)}
+                          style={{
+                            height: '46px',
+                            background: '#071426',
+                            border: '1px solid #17385D',
+                            borderRadius: '8px',
+                            padding: '0 14px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            color: selectedDistrict ? '#FFFFFF' : '#6B87A8'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            <MapPinIcon size={15} style={{ color: '#00D5FF', flexShrink: 0 }} />
+                            <span style={{ fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: selectedDistrict ? '#FFFFFF' : '#6B87A8' }}>
+                              {selectedDistrict || 'Select District / City...'}
+                            </span>
+                          </div>
+                          <ChevronDownIcon size={16} />
+                        </div>
+
+                        {isDistrictDropdownOpen && (
+                          <div
+                            className="biller-select-menu"
+                            style={{ maxHeight: '280px', zIndex: 75 }}
+                          >
+                            {/* Search input inside District dropdown */}
+                            <div style={{ padding: '8px', borderBottom: '1px solid #17385D', position: 'sticky', top: 0, background: '#0B1B32', zIndex: 2 }}>
+                              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '36px' }}>
+                                <SearchIcon size={14} style={{ position: 'absolute', left: '10px', color: '#6B87A8', pointerEvents: 'none' }} />
+                                <input
+                                  type="text"
+                                  placeholder="Search District / City / State..."
+                                  value={districtSearch}
+                                  onChange={(e) => setDistrictSearch(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  autoFocus
+                                  style={{
+                                    width: '100%',
+                                    height: '36px',
+                                    background: '#071426',
+                                    border: '1px solid #17385D',
+                                    borderRadius: '7px',
+                                    padding: '0 10px 0 32px',
+                                    fontSize: '12px',
+                                    color: '#FFFFFF',
+                                    outline: 'none',
+                                    margin: 0
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            {filteredDistrictsForSearch.length === 0 ? (
+                              <div style={{ padding: '14px', fontSize: '12px', color: '#6B87A8', textAlign: 'center' }}>
+                                No districts found matching "{districtSearch}".
+                              </div>
+                            ) : (
+                              filteredDistrictsForSearch.map((dist) => {
+                                const isDistActive = selectedDistrict?.toLowerCase() === dist.name.toLowerCase();
+                                return (
+                                  <div
+                                    key={`${dist.state}-${dist.name}`}
+                                    onClick={() => handleSelectDistrict(dist)}
+                                    className={`biller-select-item ${isDistActive ? 'selected' : ''}`}
+                                    style={{ padding: '9px 12px' }}
+                                  >
+                                    <div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontSize: '13px', fontWeight: '700', color: '#FFFFFF' }}>
+                                          {dist.name}
+                                        </span>
+                                        <span className="sidebar-badge blue" style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                          {dist.state}
+                                        </span>
+                                      </div>
+                                      <div style={{ fontSize: '11px', color: '#00D5FF', marginTop: '2px' }}>
+                                        {dist.discomName} • <span style={{ color: '#8EB2DA' }}>{dist.region}</span>
+                                      </div>
+                                    </div>
+                                    {isDistActive && <CheckIcon size={14} style={{ color: '#00D5FF' }} />}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Active District Mapping Confirmation Alert */}
+                    {selectedDistrict && (
+                      <div className="district-mapping-alert">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                          <CheckCircleIcon size={16} style={{ color: '#00D5FF', flexShrink: 0 }} />
+                          <span style={{ fontSize: '12px', color: '#FFFFFF' }}>
+                            District: <strong style={{ color: '#00D5FF' }}>{selectedDistrict}</strong>
+                            {' ➔ '}
+                            Mapped to <strong style={{ color: '#10B981' }}>{selectedBiller?.billerName || 'Regional Provider'}</strong>
+                            {selectedBiller?.regionName ? ` (${selectedBiller.regionName})` : ''}
+                          </span>
+                        </div>
+                        <span className="sidebar-badge green" style={{ fontSize: '10px' }}>
+                          Provider Auto-Selected
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', padding: '8px 12px', background: '#071426', border: '1px solid #17385D', borderRadius: '10px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '600', color: '#A9BDD7' }}>
+                      🇮🇳 Pan-India / National Providers
+                    </span>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#00D5FF' }}>
+                      {filteredBillers.length} Providers Available
+                    </span>
+                  </div>
+                )}
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
                   {/* Biller Search / Dropdown */}
                   <div style={{ position: 'relative' }} ref={billerDropdownRef}>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#A9BDD7', marginBottom: '6px' }}>
-                      Select Biller / Service Provider *
+                      Select {selectedCategory?.name || selectedCategory?.categoryName || 'Service'} Biller / Provider *
                     </label>
 
                     <div
                       onClick={() => setIsBillerDropdownOpen(!isBillerDropdownOpen)}
                       style={{
+                        height: '46px',
                         background: '#071426',
                         border: '1px solid #17385D',
                         borderRadius: '8px',
-                        padding: '12px 14px',
+                        padding: '0 14px',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
+                        gap: '10px',
                         color: selectedBiller ? '#FFFFFF' : '#6B87A8'
                       }}
                     >
-                      <span style={{ fontSize: '13px', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {selectedBiller ? selectedBiller.billerName : 'Choose your provider...'}
+                      <span style={{ fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: selectedBiller ? '#FFFFFF' : '#6B87A8', minWidth: 0, flex: 1 }}>
+                        {selectedBiller
+                          ? selectedBiller.billerName
+                          : `Select ${selectedCategory?.name || selectedCategory?.categoryName || 'Service'} Biller / Provider...`}
                       </span>
-                      <ChevronDownIcon size={16} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                        {selectedBiller && (
+                          <span className="sidebar-badge blue" style={{ fontSize: '10px', padding: '1px 6px' }}>
+                            {inferBillerState(selectedBiller, activeCatKey) || 'India'}
+                          </span>
+                        )}
+                        <ChevronDownIcon size={16} />
+                      </div>
                     </div>
 
                     {/* Biller Dropdown Menu */}
                     {isBillerDropdownOpen && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '100%',
-                          left: 0,
-                          right: 0,
-                          zIndex: 50,
-                          marginTop: '4px',
-                          background: '#0B1B32',
-                          border: '1px solid #17385D',
-                          borderRadius: '8px',
-                          boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5)',
-                          maxHeight: '260px',
-                          overflowY: 'auto'
-                        }}
-                      >
-                        <div style={{ padding: '8px', borderBottom: '1px solid #17385D' }}>
+                      <div className="biller-select-menu">
+                        <div style={{ padding: '8px', borderBottom: '1px solid #17385D', position: 'sticky', top: 0, background: '#0B1B32', zIndex: 10 }}>
                           <input
                             type="text"
-                            placeholder="Search provider name or code..."
+                            placeholder="Search provider name, code, region or district..."
                             value={billerSearch}
                             onChange={(e) => setBillerSearch(e.target.value)}
                             onClick={(e) => e.stopPropagation()}
@@ -833,35 +1516,47 @@ const CustomerBillsPage = () => {
                         </div>
 
                         {filteredBillers.length === 0 ? (
-                          <div style={{ padding: '14px', textAlign: 'center', fontSize: '12px', color: '#6B87A8' }}>
-                            No billers match your search.
+                          <div style={{ padding: '16px', textAlign: 'center', fontSize: '12px', color: '#6B87A8' }}>
+                            No billers match your search in {selectedState === 'ALL' ? 'any state' : selectedState}.
                           </div>
                         ) : (
-                          filteredBillers.map((b) => (
-                            <div
-                              key={b.id}
-                              onClick={() => handleSelectBiller(b)}
-                              style={{
-                                padding: '10px 14px',
-                                borderBottom: '1px solid #0E223D',
-                                cursor: 'pointer',
-                                background: selectedBiller?.id === b.id ? 'rgba(0, 166, 255, 0.15)' : 'transparent',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between'
-                              }}
-                            >
-                              <div>
-                                <div style={{ fontSize: '13px', color: '#FFFFFF', fontWeight: '500' }}>
-                                  {b.billerName}
+                          filteredBillers.map((b) => {
+                            const isChosen = selectedBiller?.id === b.id;
+                            return (
+                              <div
+                                key={b.id}
+                                onClick={() => handleSelectBiller(b)}
+                                className={`biller-select-item ${isChosen ? 'selected' : ''}`}
+                              >
+                                <div style={{ minWidth: 0, flex: 1, paddingRight: '8px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: '13px', color: '#FFFFFF', fontWeight: isChosen ? '700' : '500' }}>
+                                      {b.billerName}
+                                    </span>
+                                    {b.state && (
+                                      <span className="sidebar-badge blue" style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                        {b.state}
+                                      </span>
+                                    )}
+                                    {b.regionName && (
+                                      <span className="sidebar-badge green" style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                        {b.regionName}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: '#6B87A8', marginTop: '3px' }}>
+                                    Code: <code style={{ color: '#00D5FF' }}>{b.billerCode}</code> • {b.customerParameter?.paramName || 'Consumer No'}
+                                  </div>
+                                  {b.districts && (Array.isArray(b.districts) ? b.districts.length > 0 : Boolean(b.districts)) && (
+                                    <div style={{ fontSize: '10.5px', color: '#88A2C2', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      📍 <em>Districts:</em> {Array.isArray(b.districts) ? b.districts.slice(0, 6).join(', ') : b.districts}{Array.isArray(b.districts) && b.districts.length > 6 ? ` +${b.districts.length - 6} more` : ''}
+                                    </div>
+                                  )}
                                 </div>
-                                <div style={{ fontSize: '11px', color: '#6B87A8', marginTop: '2px' }}>
-                                  Code: {b.billerCode}
-                                </div>
+                                {isChosen && <CheckIcon size={16} style={{ color: '#00D5FF', flexShrink: 0 }} />}
                               </div>
-                              {selectedBiller?.id === b.id && <CheckIcon size={16} style={{ color: '#00A8FF' }} />}
-                            </div>
-                          ))
+                            );
+                          })
                         )}
                       </div>
                     )}
@@ -869,9 +1564,17 @@ const CustomerBillsPage = () => {
 
                   {/* Dynamic Parameter Input */}
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#A9BDD7', marginBottom: '6px' }}>
-                      {selectedBiller?.customerParameter?.paramName || 'Consumer Number'} *
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: '#A9BDD7' }}>
+                        {selectedBiller?.customerParameter?.paramName || 'Consumer Number'} *
+                      </label>
+                      {selectedBiller?.customerParameter?.minLength && (
+                        <span style={{ fontSize: '11px', color: '#6B87A8' }}>
+                          Length: {selectedBiller.customerParameter.minLength}
+                          {selectedBiller.customerParameter.maxLength !== selectedBiller.customerParameter.minLength ? ` - ${selectedBiller.customerParameter.maxLength}` : ''} digits
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={consumerNumber}
@@ -893,72 +1596,62 @@ const CustomerBillsPage = () => {
                       }}
                     />
                     <div style={{ fontSize: '11px', color: inputError ? '#EF4444' : '#6B87A8', marginTop: '4px' }}>
-                      {inputError || selectedBiller?.customerParameter?.helpText || 'Enter valid customer identifier'}
+                      {inputError || selectedBiller?.customerParameter?.helpText || 'Enter registered customer identifier'}
                     </div>
                   </div>
                 </div>
 
-                {/* Simulation Hint Box */}
-                <div
-                  style={{
-                    background: 'rgba(0, 166, 255, 0.05)',
-                    border: '1px dashed rgba(0, 166, 255, 0.3)',
-                    borderRadius: '8px',
-                    padding: '10px 14px',
-                    marginTop: '16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '8px'
-                  }}
-                >
-                  <div style={{ fontSize: '11px', color: '#A9BDD7' }}>
-                    💡 <strong style={{ color: '#00A8FF' }}>Demo Tips:</strong> Any valid number gives an unpaid bill.
-                    Ending with <code style={{ color: '#10B981', background: '#071426', padding: '1px 4px', borderRadius: '4px' }}>0000</code> tests "Already Paid".
-                    Ending with <code style={{ color: '#F59E0B', background: '#071426', padding: '1px 4px', borderRadius: '4px' }}>9999</code> tests "Overdue".
+                {/* Quick Realistic Demo Scenarios Helper */}
+                <div style={{ marginTop: '16px', background: '#071426', border: '1px solid #17385D', borderRadius: '10px', padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: '#FCD34D', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <SparklesIcon size={14} />
+                      <span>Demo Testing Scenarios:</span>
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#6B87A8' }}>
+                      Click any scenario below to auto-populate consumer ID
+                    </span>
                   </div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                  <div className="demo-chips-grid">
                     <button
                       type="button"
-                      onClick={() => {
-                        const base = '1000234567';
-                        const len = selectedBiller?.customerParameter?.minLength || 10;
-                        const sample = base.slice(0, len).padEnd(len, '1');
-                        setConsumerNumber(sample);
-                        validateConsumerInput(sample);
-                      }}
-                      style={{
-                        background: '#0E223D',
-                        border: '1px solid #17385D',
-                        color: '#00A8FF',
-                        borderRadius: '4px',
-                        padding: '2px 8px',
-                        fontSize: '10px',
-                        cursor: 'pointer'
-                      }}
+                      onClick={() => handleFillDemoNumber('standard')}
+                      className="demo-chip-btn"
+                      style={{ color: '#00D5FF', borderColor: 'rgba(0, 213, 255, 0.3)' }}
+                      title="Simulate standard active bill (~₹1,240 Due)"
                     >
-                      Fill Sample
+                      <ZapIcon size={13} />
+                      <span>⚡ Standard Bill (Pending)</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        const len = selectedBiller?.customerParameter?.minLength || 10;
-                        const sample = '1000000000'.slice(0, len - 4).padEnd(len, '0');
-                        setConsumerNumber(sample);
-                        validateConsumerInput(sample);
-                      }}
-                      style={{
-                        background: '#0E223D',
-                        border: '1px solid #17385D',
-                        color: '#10B981',
-                        borderRadius: '4px',
-                        padding: '2px 8px',
-                        fontSize: '10px',
-                        cursor: 'pointer'
-                      }}
+                      onClick={() => handleFillDemoNumber('overdue')}
+                      className="demo-chip-btn"
+                      style={{ color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                      title="Simulate overdue bill with late payment surcharge"
                     >
-                      Fill Paid (0000)
+                      <AlertCircleIcon size={13} />
+                      <span>⚠️ Overdue Bill (+₹150 Surcharge)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleFillDemoNumber('paid')}
+                      className="demo-chip-btn"
+                      style={{ color: '#10B981', borderColor: 'rgba(16, 185, 129, 0.3)' }}
+                      title="Simulate already settled bill (₹0 balance)"
+                    >
+                      <CheckCircleIcon size={13} />
+                      <span>✅ Settled Bill (₹0 Dues)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleFillDemoNumber('fail')}
+                      className="demo-chip-btn"
+                      style={{ color: '#F59E0B', borderColor: 'rgba(245, 158, 11, 0.3)' }}
+                      title="Simulate invalid account / discom fetch failure"
+                    >
+                      <XIcon size={13} />
+                      <span>❌ Invalid ID (Test Failure)</span>
                     </button>
                   </div>
                 </div>
@@ -990,7 +1683,7 @@ const CustomerBillsPage = () => {
                     {isFetching ? (
                       <>
                         <RefreshCwIcon size={16} className="animate-spin" />
-                        <span>Fetching Bill from BBPS...</span>
+                        <span>Querying BBPS Switch...</span>
                       </>
                     ) : (
                       <>
@@ -1018,14 +1711,26 @@ const CustomerBillsPage = () => {
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid #17385D', paddingBottom: '16px' }}>
                 <div>
-                  <span style={{ fontSize: '11px', color: '#00A8FF', fontWeight: '700', letterSpacing: '0.8px' }}>
-                    VERIFIED BBPS BILL ENQUIRY
-                  </span>
-                  <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#FFFFFF', marginTop: '2px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '11px', color: '#00D5FF', fontWeight: '700', letterSpacing: '0.8px' }}>
+                      VERIFIED BBPS BILL ENQUIRY
+                    </span>
+                    {(fetchedBill.metadata?.state || selectedBiller?.state) && (
+                      <span className="sidebar-badge blue" style={{ fontSize: '10px' }}>
+                        {fetchedBill.metadata?.state || selectedBiller?.state}
+                      </span>
+                    )}
+                    {(selectedBiller?.regionName || fetchedBill.metadata?.regionName) && (
+                      <span className="sidebar-badge green" style={{ fontSize: '10px' }}>
+                        {selectedBiller?.regionName || fetchedBill.metadata?.regionName}
+                      </span>
+                    )}
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#FFFFFF', margin: 0 }}>
                     {fetchedBill.billerName}
                   </h3>
-                  <div style={{ fontSize: '12px', color: '#A9BDD7', marginTop: '2px' }}>
-                    Ref: <code style={{ color: '#00A8FF' }}>{fetchedBill.fetchReferenceId}</code>
+                  <div style={{ fontSize: '12px', color: '#A9BDD7', marginTop: '3px' }}>
+                    Ref: <code style={{ color: '#00D5FF' }}>{fetchedBill.fetchReferenceId}</code>
                   </div>
                 </div>
 
@@ -1053,7 +1758,7 @@ const CustomerBillsPage = () => {
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: '16px',
+                  gap: '14px',
                   margin: '20px 0'
                 }}
               >
@@ -1065,9 +1770,25 @@ const CustomerBillsPage = () => {
                 </div>
 
                 <div style={{ background: '#071426', padding: '12px', borderRadius: '8px', border: '1px solid #0E223D' }}>
-                  <div style={{ fontSize: '11px', color: '#6B87A8' }}>Consumer Number</div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#FFFFFF', marginTop: '4px' }}>
+                  <div style={{ fontSize: '11px', color: '#6B87A8' }}>Consumer / Account No</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#00D5FF', marginTop: '4px', fontFamily: 'monospace' }}>
                     {fetchedBill.consumerNumber}
+                  </div>
+                </div>
+
+                <div style={{ background: '#071426', padding: '12px', borderRadius: '8px', border: '1px solid #0E223D' }}>
+                  <div style={{ fontSize: '11px', color: '#6B87A8' }}>Bill & Meter Number</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#FFFFFF', marginTop: '4px', fontFamily: 'monospace' }}>
+                    {fetchedBill.billNumber}
+                    {fetchedBill.metadata?.meterNumber ? ` • ${fetchedBill.metadata.meterNumber}` : ''}
+                  </div>
+                </div>
+
+                <div style={{ background: '#071426', padding: '12px', borderRadius: '8px', border: '1px solid #0E223D' }}>
+                  <div style={{ fontSize: '11px', color: '#6B87A8' }}>Billing Cycle & Consumption</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#FFFFFF', marginTop: '4px' }}>
+                    {fetchedBill.billPeriod || 'Current Month'}
+                    {fetchedBill.metadata?.unitsConsumed ? ` (${fetchedBill.metadata.unitsConsumed})` : ''}
                   </div>
                 </div>
 
@@ -1083,15 +1804,58 @@ const CustomerBillsPage = () => {
                   <div
                     style={{
                       fontSize: '13px',
-                      fontWeight: '600',
-                      color: fetchedBill.billStatus === 'overdue' ? '#EF4444' : '#FFFFFF',
-                      marginTop: '4px'
+                      fontWeight: '700',
+                      color: fetchedBill.billStatus === 'overdue' ? '#EF4444' : '#10B981',
+                      marginTop: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
                     }}
                   >
                     {fetchedBill.dueDate || 'N/A'}
+                    {fetchedBill.billStatus === 'overdue' && <span>(Overdue)</span>}
                   </div>
                 </div>
               </div>
+
+              {/* Financial Charges Breakdown */}
+              {fetchedBill.billAmount > 0 && (
+                <div style={{ background: '#071426', borderRadius: '10px', padding: '14px 18px', border: '1px solid #132742', marginBottom: '20px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#A9BDD7', marginBottom: '8px', letterSpacing: '0.5px' }}>
+                    BILL CHARGES BREAKDOWN
+                  </div>
+                  <table className="bill-breakdown-table">
+                    <tbody>
+                      <tr>
+                        <td style={{ color: '#A9BDD7' }}>Energy Charges (Units Consumed)</td>
+                        <td style={{ textAlign: 'right', fontWeight: '600', color: '#FFFFFF' }}>
+                          ₹{fetchedBill.metadata?.energyCharges ? fetchedBill.metadata.energyCharges.toFixed(2) : (fetchedBill.billAmount - 110 - (fetchedBill.metadata?.lateFee || 0)).toFixed(2)}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style={{ color: '#A9BDD7' }}>Fixed Meter Rent & Regulatory Duty</td>
+                        <td style={{ textAlign: 'right', fontWeight: '600', color: '#FFFFFF' }}>
+                          ₹{fetchedBill.metadata?.fixedCharges ? fetchedBill.metadata.fixedCharges.toFixed(2) : '110.00'}
+                        </td>
+                      </tr>
+                      {fetchedBill.metadata?.lateFee > 0 && (
+                        <tr>
+                          <td style={{ color: '#EF4444' }}>Late Payment Surcharge</td>
+                          <td style={{ textAlign: 'right', fontWeight: '700', color: '#EF4444' }}>
+                            +₹{fetchedBill.metadata.lateFee.toFixed(2)}
+                          </td>
+                        </tr>
+                      )}
+                      <tr style={{ borderTop: '1px solid #17385D' }}>
+                        <td style={{ fontWeight: '700', color: '#FFFFFF', paddingTop: '10px' }}>Total Amount Due</td>
+                        <td style={{ textAlign: 'right', fontWeight: '800', color: '#10B981', fontSize: '15px', paddingTop: '10px' }}>
+                          {formatINR(fetchedBill.billAmount)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {/* Already Paid Notice */}
               {fetchedBill.billStatus === 'paid' && (
@@ -1804,15 +2568,41 @@ const CustomerBillsPage = () => {
             {/* Receipt Breakdown Details */}
             <div style={{ borderTop: '1px dashed #17385D', borderBottom: '1px dashed #17385D', padding: '12px 0', marginBottom: '16px', fontSize: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ color: '#A9BDD7' }}>Provider & Discom</span>
+                <span style={{ fontWeight: '600', color: '#FFFFFF', textAlign: 'right' }}>
+                  {paymentResult.billerName}
+                  {(paymentResult.metadata?.regionName || selectedBiller?.regionName) && (
+                    <div style={{ fontSize: '11px', color: '#00D5FF', fontWeight: '500' }}>
+                      {paymentResult.metadata?.regionName || selectedBiller?.regionName}
+                    </div>
+                  )}
+                </span>
+              </div>
+              {paymentResult.metadata?.division && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ color: '#A9BDD7' }}>Division</span>
+                  <span style={{ color: '#FFFFFF' }}>{paymentResult.metadata.division}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <span style={{ color: '#A9BDD7' }}>Customer Name</span>
                 <span style={{ fontWeight: '600', color: '#FFFFFF' }}>{paymentResult.customerName || 'N/A'}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <span style={{ color: '#A9BDD7' }}>Consumer Number</span>
-                <span style={{ fontFamily: 'monospace', color: '#FFFFFF' }}>
+                <span style={{ fontFamily: 'monospace', color: '#00D5FF' }}>
                   {paymentResult.maskedConsumerNumber || paymentResult.consumerNumber}
                 </span>
               </div>
+              {(paymentResult.metadata?.meterNumber || paymentResult.meterNumber) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ color: '#A9BDD7' }}>Meter / Units</span>
+                  <span style={{ fontFamily: 'monospace', color: '#FFFFFF' }}>
+                    {paymentResult.metadata?.meterNumber || paymentResult.meterNumber}
+                    {paymentResult.metadata?.unitsConsumed ? ` • ${paymentResult.metadata.unitsConsumed}` : ''}
+                  </span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <span style={{ color: '#A9BDD7' }}>Payment Mode</span>
                 <span className={`sidebar-badge ${paymentResult.paymentMode === 'WALLET' ? 'green' : 'blue'}`}>

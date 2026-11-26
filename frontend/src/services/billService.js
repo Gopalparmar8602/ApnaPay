@@ -8,9 +8,10 @@ const billService = {
   },
 
   // 2. GET /api/bills/billers?category=... - Billers for a category
-  getBillers: async (category, page = 1, limit = 50, search = '') => {
+  getBillers: async (category, page = 1, limit = 50, search = '', state = '') => {
     const params = { category, page, limit };
     if (search) params.search = search;
+    if (state && state !== 'ALL') params.state = state;
     const res = await api.get('/bills/billers', { params });
     return res.data;
   },
@@ -22,8 +23,13 @@ const billService = {
   },
 
   // 4. POST /api/bills/validate - Server-side verification before payment
-  validateBill: async ({ fetchReferenceId, billAmount }) => {
-    const res = await api.post('/bills/validate', { fetchReferenceId, billAmount });
+  validateBill: async ({ fetchReferenceId, billerId, consumerNumber, amount, billAmount }) => {
+    const res = await api.post('/bills/validate', {
+      fetchReferenceId,
+      billerId,
+      consumerNumber,
+      amount: amount !== undefined ? amount : billAmount
+    });
     return res.data;
   },
 

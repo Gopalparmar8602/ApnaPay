@@ -21,5 +21,18 @@ router.get('/summary', walletController.getWalletSummary);
 // 5. GET /api/wallet/limits - Get transaction limits
 router.get('/limits', walletController.getWalletLimits);
 
+// 6. POST /api/wallet/add-money - Add funds to wallet (Instant top-up)
+router.post('/add-money', walletController.addMoney);
+router.post('/top-up', walletController.addMoney);
+
+// 7. POST /api/wallet/withdraw - Withdraw funds to linked bank
+router.post('/withdraw', walletController.withdrawMoney);
+
+// 8. POST /api/wallet/transfer - Wallet-to-wallet transfer
+router.post('/transfer', walletController.transferWallet);
+
+// 9. POST /api/wallet/link-bank - Quick link bank from Wallet Withdraw
+router.post('/link-bank', walletController.quickLinkBank);
+
 module.exports = router;
 

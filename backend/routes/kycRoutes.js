@@ -11,11 +11,62 @@ const {
   submitKyc,
   addKycDocument,
   getKycDocuments,
-  deleteKycDocument
+  deleteKycDocument,
+  initiatePanVerification,
+  verifyPanOtp,
+  resendPanOtp,
+  initiateAadhaarVerification,
+  verifyAadhaarOtp,
+  resendAadhaarOtp,
+  submitKycDetails,
+  upgradeWalletLimit,
+  resetKycDemo
 } = require("../controllers/kycController");
 
 // All customer KYC routes require authentication
 router.use(authMiddleware);
+
+// ======================================
+// 1. STEP 1 & 2: PAN VERIFICATION & OTP
+// ======================================
+// POST /api/v1/kyc/pan/verify - Validate PAN, Name, DOB & dispatch OTP
+router.post("/pan/verify", initiatePanVerification);
+
+// POST /api/v1/kyc/pan/verify-otp - Verify PAN OTP
+router.post("/pan/verify-otp", verifyPanOtp);
+
+// POST /api/v1/kyc/pan/resend-otp - Resend PAN OTP
+router.post("/pan/resend-otp", resendPanOtp);
+
+// ======================================
+// 2. STEP 2 (AADHAAR) VERIFICATION & OTP
+// ======================================
+// POST /api/v1/kyc/aadhaar/verify - Validate 12-digit Aadhaar & dispatch UIDAI OTP
+router.post("/aadhaar/verify", initiateAadhaarVerification);
+
+// POST /api/v1/kyc/aadhaar/verify-otp - Verify Aadhaar OTP & proceed to Step 3
+router.post("/aadhaar/verify-otp", verifyAadhaarOtp);
+
+// POST /api/v1/kyc/aadhaar/resend-otp - Resend Aadhaar OTP
+router.post("/aadhaar/resend-otp", resendAadhaarOtp);
+
+// ======================================
+// 3. STEP 3: PHONEPE WALLET KYC DETAILS
+// ======================================
+// POST /api/v1/kyc/details - Submit parent, occupation, income, nominee, declarations
+router.post("/details", submitKycDetails);
+
+// ======================================
+// 4. STEP 4: WALLET LIMIT UPGRADE
+// ======================================
+// POST /api/v1/kyc/wallet/upgrade-limit - Upgrade to ₹2 Lakh Higher Limits or ₹1 Lakh Standard
+router.post("/wallet/upgrade-limit", upgradeWalletLimit);
+
+// ======================================
+// 3. DEMO RESET ENDPOINT
+// ======================================
+// POST /api/v1/kyc/reset-demo - Reset KYC to step 1 for testing
+router.post("/reset-demo", resetKycDemo);
 
 // ======================================
 // 1. MOBILE OTP VERIFICATION ENDPOINTS

@@ -64,36 +64,44 @@ export default function Dashboard({ onNavigate, setActive }) {
     hour12: true
   });
 
-  // Dynamic KPI Metrics
-  const totalUsers = data?.users?.total !== undefined ? Number(data.users.total).toLocaleString("en-IN") : "8,432";
-  const totalTransactions = data?.transactions?.total !== undefined ? Number(data.transactions.total).toLocaleString("en-IN") : "42,567";
-  const totalVolume = data?.payments?.total_amount !== undefined
-    ? "₹ " + Number(data.payments.total_amount).toLocaleString("en-IN")
-    : "₹ 1,24,50,680";
-  const totalRevenue = (data?.revenue?.total !== undefined || data?.wallet?.total_balance !== undefined)
-    ? "₹ " + Number(data?.revenue?.total ?? data?.wallet?.total_balance ?? 0).toLocaleString("en-IN")
-    : "₹ 2,48,520";
+  // Dynamic KPI Metrics (strictly from API when loaded)
+  const isInitialLoading = loading && !data;
+  const totalUsers = isInitialLoading
+    ? "..."
+    : Number(data?.users?.total ?? 0).toLocaleString("en-IN");
+  const totalTransactions = isInitialLoading
+    ? "..."
+    : Number(data?.transactions?.total ?? 0).toLocaleString("en-IN");
+  const totalVolume = isInitialLoading
+    ? "..."
+    : "₹ " + Number(data?.payments?.total_amount ?? 0).toLocaleString("en-IN");
+  const totalRevenue = isInitialLoading
+    ? "..."
+    : "₹ " + Number(data?.revenue?.total ?? data?.wallet?.total_balance ?? 0).toLocaleString("en-IN");
 
-  const userGrowth = data?.users?.growth_pct ? `↑ ${data.users.growth_pct}%` : "↑ 12.5%";
-  const txnGrowth = data?.transactions?.growth_pct ? `↑ ${data.transactions.growth_pct}%` : "↑ 18.2%";
-  const volumeGrowth = data?.payments?.growth_pct ? `↑ ${data.payments.growth_pct}%` : "↑ 22.4%";
-  const revenueGrowth = data?.revenue?.growth_pct ? `↑ ${data.revenue.growth_pct}%` : "↑ 16.8%";
+  const userGrowth = data?.users?.growth_pct !== undefined ? `↑ ${data.users.growth_pct}%` : "↑ 0%";
+  const txnGrowth = data?.transactions?.growth_pct !== undefined ? `↑ ${data.transactions.growth_pct}%` : "↑ 0%";
+  const volumeGrowth = data?.payments?.growth_pct !== undefined ? `↑ ${data.payments.growth_pct}%` : "↑ 0%";
+  const revenueGrowth = data?.revenue?.growth_pct !== undefined ? `↑ ${data.revenue.growth_pct}%` : "↑ 0%";
 
-  // Status Alert Metrics
-  const pendingKyc = data?.kyc?.pending ?? 12;
-  const pendingRefunds = data?.refunds?.total_count ?? 7;
-  const failedTxns = data?.transactions?.failed ?? 5;
-  const activeSip = data?.sip?.active_accounts ?? 843;
-  const pendingComplaints = data?.complaints?.pending ?? 4;
+  // Status Alert & KYC Metrics
+  const pendingKyc = data?.kyc?.pending ?? 0;
+  const verifiedKyc = data?.kyc?.verified ?? 0;
+  const rejectedKyc = data?.kyc?.rejected ?? 0;
+  const pendingRefunds = data?.refunds?.pending_count ?? data?.refunds?.total_count ?? 0;
+  const failedTxns = data?.transactions?.failed ?? 0;
+  const activeSip = data?.sip?.active_accounts ?? 0;
+  const pendingComplaints = data?.complaints?.pending ?? 0;
 
   // Donut Chart Success Rate Calculations
-  const successCount = data?.transactions?.successful ?? 40987;
-  const pendingCount = data?.transactions?.pending ?? 892;
-  const failedCount = data?.transactions?.failed ?? 645;
-  const totalTxnCount = successCount + pendingCount + failedCount || 1;
-  const successPct = ((successCount / totalTxnCount) * 100).toFixed(1);
-  const pendingPct = ((pendingCount / totalTxnCount) * 100).toFixed(1);
-  const failedPct = ((failedCount / totalTxnCount) * 100).toFixed(1);
+  const successCount = Number(data?.transactions?.successful ?? 0);
+  const pendingCount = Number(data?.transactions?.pending ?? 0);
+  const failedCount = Number(data?.transactions?.failed ?? 0);
+  const rawTxnTotal = successCount + pendingCount + failedCount;
+  const totalTxnCount = rawTxnTotal > 0 ? rawTxnTotal : 1;
+  const successPct = rawTxnTotal > 0 ? ((successCount / totalTxnCount) * 100).toFixed(1) : "0.0";
+  const pendingPct = rawTxnTotal > 0 ? ((pendingCount / totalTxnCount) * 100).toFixed(1) : "0.0";
+  const failedPct = rawTxnTotal > 0 ? ((failedCount / totalTxnCount) * 100).toFixed(1) : "0.0";
 
   // Donut circumference: 2 * Math.PI * 48 = 301.59
   const circ = 301.59;
@@ -101,23 +109,23 @@ export default function Dashboard({ onNavigate, setActive }) {
   const pendingDash = ((Number(pendingPct) / 100) * circ).toFixed(1);
   const failedDash = ((Number(failedPct) / 100) * circ).toFixed(1);
 
-  // Dynamic Transaction Overview Trends
-  const trendPoints = data?.transaction_trends?.[txnRange] || [
-    { label: "00:00", time: "00:00", amount: 1200, count: 2 },
-    { label: "04:00", time: "04:00", amount: 850, count: 1 },
-    { label: "08:00", time: "08:00", amount: 3200, count: 4 },
-    { label: "10:00", time: "10:00", amount: 12450, count: 8 },
-    { label: "12:00", time: "12:00", amount: 8900, count: 6 },
-    { label: "16:00", time: "16:00", amount: 14200, count: 9 },
-    { label: "20:00", time: "20:00", amount: 9500, count: 5 }
-  ];
+  const formatAxisVal = (val) => {
+    const n = Number(val) || 0;
+    if (n >= 1000) return `₹${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K`;
+    return `₹${Math.round(n)}`;
+  };
 
-  const maxTrendVal = Math.max(...trendPoints.map((p) => p.amount || 0), 1000);
-  const activePoint = trendPoints[activePointIndex] || trendPoints[trendPoints.length - 1];
+  // Dynamic Transaction Overview Trends
+  const rawTrendPoints = data?.transaction_trends?.[txnRange] || [];
+  const trendPoints = rawTrendPoints.length === 1
+    ? [{ label: "Prev", time: "Prev", amount: 0, count: 0 }, ...rawTrendPoints]
+    : rawTrendPoints;
+
+  const maxTrendVal = Math.max(...trendPoints.map((p) => Number(p.amount) || 0), 1000);
+  const safeActiveIdx = Math.min(activePointIndex, Math.max(0, trendPoints.length - 1));
 
   // Compute SVG curve points for Area Chart
-  const svgWidth = 540;
-  const svgLeft = 45;
+  const svgLeft = 48;
   const svgRight = 515;
   const svgBottom = 160;
   const svgTop = 25;
@@ -125,7 +133,7 @@ export default function Dashboard({ onNavigate, setActive }) {
 
   const coords = trendPoints.map((p, idx) => {
     const x = svgLeft + idx * pointSpread;
-    const ratio = (p.amount || 0) / maxTrendVal;
+    const ratio = (Number(p.amount) || 0) / maxTrendVal;
     const y = svgBottom - ratio * (svgBottom - svgTop);
     return { x, y, ...p };
   });
@@ -143,36 +151,14 @@ export default function Dashboard({ onNavigate, setActive }) {
   const areaD = coords.length > 0 ? `${pathD} L ${coords[coords.length - 1].x},${svgBottom} L ${coords[0].x},${svgBottom} Z` : "";
 
   // Dynamic Revenue Bars
-  const revenueBars = data?.revenue_analytics?.[revRange] || [
-    { label: "17 Nov", amount: 4350 },
-    { label: "18 Nov", amount: 9000 },
-    { label: "19 Nov", amount: 3116 },
-    { label: "20 Nov", amount: 28200 },
-    { label: "21 Nov", amount: 20000 },
-    { label: "22 Nov", amount: 1349 },
-    { label: "23 Nov", amount: 19499 }
-  ];
-  const maxBarAmount = Math.max(...revenueBars.map((b) => b.amount || 0), 1000);
+  const revenueBars = data?.revenue_analytics?.[revRange] || [];
+  const maxBarAmount = Math.max(...revenueBars.map((b) => Number(b.amount) || 0), 1000);
 
   // Dynamic Recent Transactions
-  const recentTransactions = data?.recent_transactions && data.recent_transactions.length > 0
-    ? data.recent_transactions
-    : [
-        { id: "TXN1002487", user_name: "Rohit Sharma", type: "Money Transfer", amount: 5000, status: "success", time: "10:32 AM" },
-        { id: "TXN1002486", user_name: "Priya Verma", type: "Mobile Recharge", amount: 299, status: "success", time: "10:21 AM" },
-        { id: "TXN1002485", user_name: "Amit Kumar", type: "Bill Payment", amount: 1250, status: "pending", time: "10:15 AM" },
-        { id: "TXN1002484", user_name: "Neha Singh", type: "SIP Investment", amount: 10000, status: "success", time: "09:58 AM" },
-        { id: "TXN1002483", user_name: "Sandeep Yadav", type: "Money Transfer", amount: 2500, status: "failed", time: "09:42 AM" }
-      ];
+  const recentTransactions = Array.isArray(data?.recent_transactions) ? data.recent_transactions : [];
 
   // Dynamic Top Services
-  const topServices = data?.top_services || [
-    { name: "Mobile Recharge", loc: "Delhi", count: 12845, growth: "↑ 16%", icon: "Smartphone" },
-    { name: "DTH Recharge", loc: "Delhi", count: 3256, growth: "↑ 12%", icon: "Tv" },
-    { name: "Electricity Bill", loc: "Delhi", count: 2487, growth: "↑ 5%", icon: "Zap" },
-    { name: "FASTag Recharge", loc: "Delhi", count: 1250, growth: "↑ 6%", icon: "Car" },
-    { name: "Landline Bill", loc: "Delhi", count: 842, growth: "↑ 4%", icon: "Phone" }
-  ];
+  const topServices = Array.isArray(data?.top_services) ? data.top_services : [];
 
   const getServiceIcon = (iconName) => {
     switch (iconName) {
@@ -186,9 +172,18 @@ export default function Dashboard({ onNavigate, setActive }) {
     }
   };
 
-  const handleDownloadReport = () => {
+  const handleDownloadReport = async () => {
     try {
-      window.open("http://localhost:5000/api/transactions/export?format=csv", "_blank");
+      const res = await api.get("/transactions/export?format=csv", { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "text/csv" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `apnapay-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
     } catch (_) {
       navigateTab("Reports & Analytics");
     }
@@ -196,6 +191,26 @@ export default function Dashboard({ onNavigate, setActive }) {
 
   return (
     <div className="fintech-dashboard-wrapper">
+      {error && (
+        <div className="fintech-status-banner error" role="alert">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+          <button type="button" onClick={fetchDashboard} className="fintech-retry-btn">
+            Retry Sync
+          </button>
+        </div>
+      )}
+
+      {isInitialLoading && (
+        <div className="fintech-status-banner loading" role="status">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <RefreshCw size={15} className="spin" />
+            <span>Loading live ApnaPay Admin metrics...</span>
+          </div>
+        </div>
+      )}
       {/* 1. Top Hero: Personalized Enterprise Admin Greeting & Revenue Card */}
       <div className="overview-hero-row">
         {/* Welcome Greeting Banner */}
@@ -480,6 +495,7 @@ export default function Dashboard({ onNavigate, setActive }) {
             <div>
               <div className="fintech-alert-title">Pending KYC</div>
               <div className="fintech-alert-num">{pendingKyc}</div>
+              <div className="fintech-alert-sub">Verified: {verifiedKyc} • Rejected: {rejectedKyc}</div>
             </div>
           </div>
           <ChevronRight size={18} className="fintech-alert-arrow" />
@@ -535,11 +551,14 @@ export default function Dashboard({ onNavigate, setActive }) {
               <span>Transaction Overview</span>
             </div>
             <div className="fintech-filter-pills">
-              {["Today", "7 Days", "30 Days", "Custom"].map((tab) => (
+              {["Today", "7 Days", "30 Days"].map((tab) => (
                 <button
                   key={tab}
                   className={`fintech-pill-btn ${txnRange === tab ? "active" : ""}`}
-                  onClick={() => setTxnRange(tab)}
+                  onClick={() => {
+                    setTxnRange(tab);
+                    setActivePointIndex(0);
+                  }}
                 >
                   {tab}
                 </button>
@@ -549,6 +568,11 @@ export default function Dashboard({ onNavigate, setActive }) {
 
           {/* Dynamic SVG Area Chart */}
           <div className="fintech-svg-chart-container">
+            {coords.length === 0 ? (
+              <div style={{ color: "#6B87A8", fontSize: "13px", textAlign: "center" }}>
+                {isInitialLoading ? "Loading transaction trends..." : "No transaction trend data for this range."}
+              </div>
+            ) : (
             <svg viewBox="0 0 540 190" className="fintech-area-svg">
               <defs>
                 <linearGradient id="txnGradient" x1="0" y1="0" x2="0" y2="1">
@@ -563,19 +587,19 @@ export default function Dashboard({ onNavigate, setActive }) {
 
               {/* Y Axis Grid & Labels */}
               <g className="fintech-chart-grid" stroke="#16365C" strokeDasharray="3 3">
-                <line x1="45" y1="25" x2="515" y2="25" />
-                <line x1="45" y1="60" x2="515" y2="60" />
-                <line x1="45" y1="95" x2="515" y2="95" />
-                <line x1="45" y1="130" x2="515" y2="130" />
-                <line x1="45" y1="160" x2="515" y2="160" strokeDasharray="none" stroke="#214C7C" />
+                <line x1="48" y1="25" x2="515" y2="25" />
+                <line x1="48" y1="60" x2="515" y2="60" />
+                <line x1="48" y1="95" x2="515" y2="95" />
+                <line x1="48" y1="130" x2="515" y2="130" />
+                <line x1="48" y1="160" x2="515" y2="160" strokeDasharray="none" stroke="#214C7C" />
               </g>
 
               {/* Y Labels */}
-              <text x="35" y="29" className="chart-label">₹{(maxTrendVal / 1000).toFixed(0)}K</text>
-              <text x="35" y="64" className="chart-label">₹{((maxTrendVal * 0.75) / 1000).toFixed(0)}K</text>
-              <text x="35" y="99" className="chart-label">₹{((maxTrendVal * 0.5) / 1000).toFixed(0)}K</text>
-              <text x="35" y="134" className="chart-label">₹{((maxTrendVal * 0.25) / 1000).toFixed(0)}K</text>
-              <text x="35" y="163" className="chart-label">0</text>
+              <text x="42" y="29" className="chart-label" textAnchor="end">{formatAxisVal(maxTrendVal)}</text>
+              <text x="42" y="64" className="chart-label" textAnchor="end">{formatAxisVal(maxTrendVal * 0.75)}</text>
+              <text x="42" y="99" className="chart-label" textAnchor="end">{formatAxisVal(maxTrendVal * 0.5)}</text>
+              <text x="42" y="134" className="chart-label" textAnchor="end">{formatAxisVal(maxTrendVal * 0.25)}</text>
+              <text x="42" y="163" className="chart-label" textAnchor="end">0</text>
 
               {/* Dynamic Area Under Curve */}
               {areaD && <path d={areaD} fill="url(#txnGradient)" />}
@@ -598,10 +622,10 @@ export default function Dashboard({ onNavigate, setActive }) {
                   <circle
                     cx={pt.x}
                     cy={pt.y}
-                    r={idx === activePointIndex ? 5.5 : 3.5}
+                    r={idx === safeActiveIdx ? 5.5 : 3.5}
                     fill="#00D5FF"
-                    stroke={idx === activePointIndex ? "#FFFFFF" : "none"}
-                    strokeWidth={idx === activePointIndex ? 2.5 : 0}
+                    stroke={idx === safeActiveIdx ? "#FFFFFF" : "none"}
+                    strokeWidth={idx === safeActiveIdx ? 2.5 : 0}
                   />
                   {/* Invisible larger hit area for hover/click */}
                   <circle cx={pt.x} cy={pt.y} r={14} fill="transparent" />
@@ -609,12 +633,12 @@ export default function Dashboard({ onNavigate, setActive }) {
               ))}
 
               {/* Active Marker Line & Tooltip */}
-              {coords[activePointIndex] && (
+              {coords[safeActiveIdx] && (
                 <>
                   <line
-                    x1={coords[activePointIndex].x}
-                    y1={coords[activePointIndex].y}
-                    x2={coords[activePointIndex].x}
+                    x1={coords[safeActiveIdx].x}
+                    y1={coords[safeActiveIdx].y}
+                    x2={coords[safeActiveIdx].x}
                     y2={160}
                     stroke="#00D5FF"
                     strokeWidth="1.2"
@@ -623,16 +647,16 @@ export default function Dashboard({ onNavigate, setActive }) {
                   <g
                     transform={`translate(${Math.max(
                       10,
-                      Math.min(450, coords[activePointIndex].x - 45)
-                    )}, ${Math.max(5, coords[activePointIndex].y - 42)})`}
+                      Math.min(440, coords[safeActiveIdx].x - 45)
+                    )}, ${Math.max(5, coords[safeActiveIdx].y - 42)})`}
                   >
                     <rect width="90" height="34" rx="6" fill="#050D1B" stroke="#00D5FF" strokeWidth="1" />
                     <polygon points="45,34 40,38 50,38" fill="#00D5FF" />
                     <text x="45" y="16" textAnchor="middle" fill="#FFFFFF" fontWeight="700" fontSize="11">
-                      ₹ {Number(coords[activePointIndex].amount).toLocaleString("en-IN")}
+                      ₹ {Number(coords[safeActiveIdx].amount).toLocaleString("en-IN")}
                     </text>
                     <text x="45" y="28" textAnchor="middle" fill="#00D5FF" fontWeight="600" fontSize="9">
-                      {coords[activePointIndex].label || coords[activePointIndex].time}
+                      {coords[safeActiveIdx].label || coords[safeActiveIdx].time}
                     </text>
                   </g>
                 </>
@@ -645,6 +669,7 @@ export default function Dashboard({ onNavigate, setActive }) {
                 </text>
               ))}
             </svg>
+            )}
           </div>
         </div>
 
@@ -663,41 +688,47 @@ export default function Dashboard({ onNavigate, setActive }) {
               <svg viewBox="0 0 130 130" className="fintech-donut-svg">
                 <circle cx="65" cy="65" r="48" fill="none" stroke="#16365C" strokeWidth="12" />
                 {/* Green Success */}
-                <circle
-                  cx="65"
-                  cy="65"
-                  r="48"
-                  fill="none"
-                  stroke="#00E599"
-                  strokeWidth="12"
-                  strokeDasharray={`${successDash} ${circ}`}
-                  strokeDashoffset="75"
-                  strokeLinecap="round"
-                />
+                {Number(successPct) > 0 && (
+                  <circle
+                    cx="65"
+                    cy="65"
+                    r="48"
+                    fill="none"
+                    stroke="#00E599"
+                    strokeWidth="12"
+                    strokeDasharray={`${successDash} ${circ}`}
+                    strokeDashoffset="75"
+                    strokeLinecap="round"
+                  />
+                )}
                 {/* Orange Pending */}
-                <circle
-                  cx="65"
-                  cy="65"
-                  r="48"
-                  fill="none"
-                  stroke="#F59E0B"
-                  strokeWidth="12"
-                  strokeDasharray={`${pendingDash} ${circ}`}
-                  strokeDashoffset={`-${75 + Number(successDash)}`}
-                  strokeLinecap="round"
-                />
+                {Number(pendingPct) > 0 && (
+                  <circle
+                    cx="65"
+                    cy="65"
+                    r="48"
+                    fill="none"
+                    stroke="#F59E0B"
+                    strokeWidth="12"
+                    strokeDasharray={`${pendingDash} ${circ}`}
+                    strokeDashoffset={`-${75 + Number(successDash)}`}
+                    strokeLinecap="round"
+                  />
+                )}
                 {/* Red Failed */}
-                <circle
-                  cx="65"
-                  cy="65"
-                  r="48"
-                  fill="none"
-                  stroke="#FF4D4D"
-                  strokeWidth="12"
-                  strokeDasharray={`${failedDash} ${circ}`}
-                  strokeDashoffset={`-${75 + Number(successDash) + Number(pendingDash)}`}
-                  strokeLinecap="round"
-                />
+                {Number(failedPct) > 0 && (
+                  <circle
+                    cx="65"
+                    cy="65"
+                    r="48"
+                    fill="none"
+                    stroke="#FF4D4D"
+                    strokeWidth="12"
+                    strokeDasharray={`${failedDash} ${circ}`}
+                    strokeDashoffset={`-${75 + Number(successDash) + Number(pendingDash)}`}
+                    strokeLinecap="round"
+                  />
+                )}
               </svg>
 
               {/* Donut Center Text */}
@@ -767,6 +798,11 @@ export default function Dashboard({ onNavigate, setActive }) {
 
           {/* SVG Dynamic Bar Chart */}
           <div className="fintech-svg-chart-container">
+            {revenueBars.length === 0 ? (
+              <div style={{ color: "#6B87A8", fontSize: "13px", textAlign: "center" }}>
+                {isInitialLoading ? "Loading revenue analytics..." : "No revenue data for this period."}
+              </div>
+            ) : (
             <svg viewBox="0 0 310 190" className="fintech-bar-svg">
               <defs>
                 <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
@@ -777,28 +813,28 @@ export default function Dashboard({ onNavigate, setActive }) {
 
               {/* Y Grid */}
               <g stroke="#16365C" strokeDasharray="3 3">
-                <line x1="38" y1="25" x2="300" y2="25" />
-                <line x1="38" y1="60" x2="300" y2="60" />
-                <line x1="38" y1="95" x2="300" y2="95" />
-                <line x1="38" y1="130" x2="300" y2="130" />
-                <line x1="38" y1="160" x2="300" y2="160" strokeDasharray="none" stroke="#214C7C" />
+                <line x1="42" y1="25" x2="300" y2="25" />
+                <line x1="42" y1="60" x2="300" y2="60" />
+                <line x1="42" y1="95" x2="300" y2="95" />
+                <line x1="42" y1="130" x2="300" y2="130" />
+                <line x1="42" y1="160" x2="300" y2="160" strokeDasharray="none" stroke="#214C7C" />
               </g>
 
               {/* Y Labels */}
-              <text x="30" y="29" className="chart-label" textAnchor="end">₹{(maxBarAmount / 1000).toFixed(0)}K</text>
-              <text x="30" y="64" className="chart-label" textAnchor="end">₹{((maxBarAmount * 0.75) / 1000).toFixed(0)}K</text>
-              <text x="30" y="99" className="chart-label" textAnchor="end">₹{((maxBarAmount * 0.5) / 1000).toFixed(0)}K</text>
-              <text x="30" y="134" className="chart-label" textAnchor="end">₹{((maxBarAmount * 0.25) / 1000).toFixed(0)}K</text>
-              <text x="30" y="163" className="chart-label" textAnchor="end">0</text>
+              <text x="36" y="29" className="chart-label" textAnchor="end">{formatAxisVal(maxBarAmount)}</text>
+              <text x="36" y="64" className="chart-label" textAnchor="end">{formatAxisVal(maxBarAmount * 0.75)}</text>
+              <text x="36" y="99" className="chart-label" textAnchor="end">{formatAxisVal(maxBarAmount * 0.5)}</text>
+              <text x="36" y="134" className="chart-label" textAnchor="end">{formatAxisVal(maxBarAmount * 0.25)}</text>
+              <text x="36" y="163" className="chart-label" textAnchor="end">0</text>
 
               {/* Dynamic Bars */}
               {revenueBars.map((bar, idx) => {
                 const totalBars = revenueBars.length;
-                const availableWidth = 260;
+                const availableWidth = 250;
                 const barSpacing = availableWidth / totalBars;
-                const barWidth = Math.min(18, Math.max(8, barSpacing - 12));
-                const x = 45 + idx * barSpacing + (barSpacing - barWidth) / 2;
-                const barHeight = Math.max(8, Math.round(((bar.amount || 0) / maxBarAmount) * 135));
+                const barWidth = Math.min(24, Math.max(10, barSpacing - 12));
+                const x = 48 + idx * barSpacing + (barSpacing - barWidth) / 2;
+                const barHeight = Math.max(8, Math.round(((Number(bar.amount) || 0) / maxBarAmount) * 135));
                 const y = 160 - barHeight;
 
                 return (
@@ -812,6 +848,7 @@ export default function Dashboard({ onNavigate, setActive }) {
                 );
               })}
             </svg>
+            )}
           </div>
         </div>
       </div>
@@ -843,9 +880,16 @@ export default function Dashboard({ onNavigate, setActive }) {
                 </tr>
               </thead>
               <tbody>
-                {recentTransactions.slice(0, 5).map((txn, idx) => {
+                {recentTransactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: "center", padding: "24px 12px", color: "#6B87A8" }}>
+                      {isInitialLoading ? "Loading recent transactions..." : "No recent transactions found."}
+                    </td>
+                  </tr>
+                ) : (
+                recentTransactions.slice(0, 5).map((txn, idx) => {
                   const statusKey = String(txn.status || "").toLowerCase();
-                  const isSuccess = statusKey === "success" || statusKey === "succeeded";
+                  const isSuccess = statusKey === "success" || statusKey === "succeeded" || statusKey === "completed";
                   const isPending = statusKey === "pending" || statusKey === "initiated";
 
                   return (
@@ -867,7 +911,8 @@ export default function Dashboard({ onNavigate, setActive }) {
                       <td className="time-cell">{txn.time}</td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>

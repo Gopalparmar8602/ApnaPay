@@ -88,9 +88,19 @@ class DemoBillPaymentProvider extends BillPaymentProvider {
     const cleanUpper = cleanConsumer.toUpperCase();
 
     // Check test scenarios:
+    // 0. Failure / Not Found scenario (contains FAIL, INVALID, NOTFOUND)
+    if (cleanUpper.includes('FAIL') || cleanUpper.includes('INVALID') || cleanUpper.includes('NOTFOUND')) {
+      throw {
+        status: 404,
+        message: `BBPS Central Switch: Customer account "${cleanConsumer}" was not found or is disconnected with ${biller.biller_name || biller.billerName}. Please verify your consumer number.`
+      };
+    }
+
     // 1. Already paid scenario (ends with 0000 or contains PAID)
     if (cleanUpper.endsWith('0000') || cleanUpper.includes('PAID')) {
       const now = new Date();
+      const code = (biller.biller_code || biller.billerCode || '').toUpperCase();
+      const meterPrefix = code.includes('MPPKVVCL-W') ? 'IND' : code.includes('MPMKVVCL') ? 'BPL' : code.includes('JBP') ? 'JBP' : 'MTR';
       return {
         customerName: this._generateCustomerName(user, cleanConsumer),
         consumerNumber: cleanConsumer,
@@ -104,7 +114,14 @@ class DemoBillPaymentProvider extends BillPaymentProvider {
         metadata: {
           isDemo: true,
           provider: this.providerCode,
-          scenario: 'already_paid'
+          scenario: 'already_paid',
+          state: biller.state || 'National',
+          regionName: biller.region_name || biller.regionName || 'General Distribution',
+          billerName: biller.biller_name || biller.billerName,
+          billerCode: biller.biller_code || biller.billerCode,
+          meterNumber: `${meterPrefix}-MTR-${100000 + (this._hashString(cleanConsumer) % 890000)}`,
+          unitsConsumed: `0 kWh`,
+          tariffClass: 'Domestic LT-1'
         }
       };
     }
@@ -112,7 +129,8 @@ class DemoBillPaymentProvider extends BillPaymentProvider {
     // 2. Overdue scenario (ends with 9999 or contains OVERDUE)
     const isOverdue = cleanUpper.endsWith('9999') || cleanUpper.includes('OVERDUE');
     const baseAmount = this._calculateBillAmount(biller.category_key || biller.categoryKey, cleanConsumer);
-    const finalAmount = isOverdue ? baseAmount + 120 : baseAmount;
+    const lateFee = isOverdue ? 150 : 0;
+    const finalAmount = baseAmount + lateFee;
 
     const today = new Date();
     const billDate = new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10);
@@ -125,7 +143,35 @@ class DemoBillPaymentProvider extends BillPaymentProvider {
     const prevMonth = monthNames[(today.getMonth() + 11) % 12];
     const billPeriod = `${prevMonth} ${today.getFullYear()} - ${currentMonth} ${today.getFullYear()}`;
 
-    const billNumber = `BL${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, '0')}${cleanConsumer.slice(-4) || '7890'}`;
+    const bCode = (biller.biller_code || biller.billerCode || 'BIL').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+    const billNumber = `BL-${bCode}-${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, '0')}-${cleanConsumer.slice(-4) || '7890'}`;
+
+    const hashVal = this._hashString(cleanConsumer);
+    const fixedCharges = 110.00;
+    const energyCharges = Math.max(0, baseAmount - fixedCharges);
+    const unitsConsumed = `${135 + (hashVal % 285)} kWh`;
+
+    // Region & Meter logic
+    const billerCodeUpper = (biller.biller_code || biller.billerCode || '').toUpperCase();
+    let meterPrefix = 'MTR';
+    let divisionName = 'General Circle';
+
+    if (billerCodeUpper.includes('MPPKVVCL-W')) {
+      meterPrefix = 'IND';
+      divisionName = 'Indore Metro Division (West Discom)';
+    } else if (billerCodeUpper.includes('MPMKVVCL')) {
+      meterPrefix = 'BPL';
+      divisionName = 'Bhopal Central Division (Central Discom)';
+    } else if (billerCodeUpper.includes('JBP')) {
+      meterPrefix = 'JBP';
+      divisionName = 'Jabalpur East Division (East Discom)';
+    } else if (billerCodeUpper.includes('BSES') || billerCodeUpper.includes('TPDDL')) {
+      meterPrefix = 'DEL';
+      divisionName = 'Delhi Distribution Circle';
+    } else if (billerCodeUpper.includes('MUM') || billerCodeUpper.includes('MAHA')) {
+      meterPrefix = 'MUM';
+      divisionName = 'Maharashtra Circle';
+    }
 
     return {
       customerName: this._generateCustomerName(user, cleanConsumer),
@@ -137,14 +183,24 @@ class DemoBillPaymentProvider extends BillPaymentProvider {
       billPeriod,
       billStatus: isOverdue ? 'overdue' : 'unpaid',
       description: isOverdue
-        ? `Overdue Bill: Includes ₹120.00 late payment surcharge. Please clear immediately.`
+        ? `Overdue Bill: Includes ₹150.00 late payment surcharge. Avoid power disconnection by clearing now.`
         : `Regular utility invoice for ${biller.biller_name || biller.billerName}.`,
       metadata: {
         isDemo: true,
         provider: this.providerCode,
         isOverdue,
-        lateFee: isOverdue ? 120 : 0,
-        billerCode: biller.biller_code || biller.billerCode
+        lateFee,
+        baseAmount: parseFloat(baseAmount.toFixed(2)),
+        energyCharges: parseFloat(energyCharges.toFixed(2)),
+        fixedCharges,
+        billerCode: biller.biller_code || biller.billerCode,
+        billerName: biller.biller_name || biller.billerName,
+        state: biller.state || 'National',
+        regionName: biller.region_name || biller.regionName || divisionName,
+        division: divisionName,
+        meterNumber: `${meterPrefix}-MTR-${100000 + (hashVal % 890000)}`,
+        unitsConsumed,
+        tariffClass: 'Domestic LT-1'
       }
     };
   }

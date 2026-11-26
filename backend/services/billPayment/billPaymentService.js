@@ -295,15 +295,24 @@ class BillPaymentService {
         console.warn('Bill Payment Notification dispatch failed:', notifErr.message);
       }
 
+      let parsedMeta = {};
+      try {
+        parsedMeta = typeof billFetch.metadata === 'string' ? JSON.parse(billFetch.metadata) : (billFetch.metadata || {});
+      } catch (_) {}
+
       return {
         paymentId,
         txnReference,
         status: paymentStatus,
+        billerName: biller.billerName,
         biller: {
           id: biller.id,
           name: biller.billerName,
+          billerName: biller.billerName,
           code: biller.billerCode,
-          categoryName: biller.categoryName
+          categoryName: biller.categoryName,
+          state: biller.state,
+          regionName: biller.regionName
         },
         consumerNumber: billFetch.consumer_number,
         maskedConsumerNumber: this.maskConsumerNumber(billFetch.consumer_number),
@@ -316,6 +325,11 @@ class BillPaymentService {
         failureReason,
         paidAt: paidAt ? paidAt.toISOString() : null,
         createdAt: new Date().toISOString(),
+        metadata: {
+          ...parsedMeta,
+          state: biller.state || parsedMeta.state,
+          regionName: biller.regionName || parsedMeta.regionName
+        },
         isDemo: true,
         receipt: {
           receiptNo: `REC-${txnReference}`,

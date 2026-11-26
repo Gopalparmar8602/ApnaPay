@@ -1252,17 +1252,18 @@ const CustomerBankAccountsPage = () => {
       {/* ======================================================== */}
       {showModal && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '490px' }}>
-            <div className="modal-header" style={{ padding: '14px 18px' }}>
+          <div className="modal-content bank-link-modal-card">
+            {/* Modal Header */}
+            <div className="bank-link-modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ padding: '6px', background: 'rgba(0, 166, 255, 0.1)', borderRadius: '8px', color: '#00A8FF' }}>
-                  {step === 1 ? <BankIcon size={20} /> : <LockIcon size={20} />}
+                <div style={{ width: '32px', height: '32px', background: 'rgba(0, 168, 255, 0.12)', borderRadius: '8px', color: '#00A8FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {step === 1 ? <BankIcon size={18} /> : <LockIcon size={18} />}
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#FFFFFF', margin: 0 }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#FFFFFF', margin: 0, lineHeight: 1.2 }}>
                     {step === 1 ? 'Link Bank Account' : 'Verify Your Mobile Number'}
                   </h3>
-                  <p style={{ fontSize: '12px', color: '#A9BDD7', margin: 0 }}>
+                  <p style={{ fontSize: '11.5px', color: '#8BA2C1', margin: '2px 0 0 0', lineHeight: 1.2 }}>
                     {step === 1
                       ? 'Enter your bank details to initiate verification'
                       : `Enter the 6-digit code sent to your registered mobile ending in ${registeredPhoneEnding || 'XXXX'}`}
@@ -1271,26 +1272,29 @@ const CustomerBankAccountsPage = () => {
               </div>
 
               <button
+                type="button"
                 onClick={closeModal}
-                style={{ background: 'transparent', border: 'none', color: '#A9BDD7', cursor: 'pointer', padding: '4px' }}
+                style={{ background: 'transparent', border: 'none', color: '#8BA2C1', cursor: 'pointer', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '6px' }}
+                aria-label="Close"
               >
-                <XIcon size={18} />
+                <XIcon size={16} />
               </button>
             </div>
 
-            <div className="modal-body" style={{ padding: '16px 18px 14px' }}>
+            <div className="bank-link-modal-body">
+              {/* Compact Demo Mode Banner */}
               {isDemoMode() && step === 1 && (
-                <div style={{ background: 'rgba(0, 166, 255, 0.08)', border: '1px solid rgba(0, 166, 255, 0.2)', borderRadius: '8px', padding: '8px 12px', marginBottom: '14px', fontSize: '12px', color: '#A9BDD7', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <InfoIcon size={15} style={{ color: '#00A8FF', flexShrink: 0 }} />
+                <div className="bank-link-demo-banner">
+                  <InfoIcon size={13} style={{ color: '#00A8FF', flexShrink: 0 }} />
                   <span>
-                    <strong>Demo Mode:</strong> Telecom SMS and paid banking APIs are simulated. Bank linking verification will be completed using your registered email OTP.
+                    <strong>Demo Mode:</strong> Telecom SMS simulated. Bank linking verification will be completed using your registered email OTP.
                   </span>
                 </div>
               )}
 
               {formError && (
-                <div className="auth-alert error" style={{ marginBottom: '14px', padding: '10px 12px', fontSize: '12.5px' }}>
-                  <AlertCircleIcon size={16} />
+                <div className="auth-alert error" style={{ marginBottom: '10px', padding: '8px 12px', fontSize: '12px' }}>
+                  <AlertCircleIcon size={14} />
                   <span>{formError}</span>
                 </div>
               )}
@@ -1298,13 +1302,11 @@ const CustomerBankAccountsPage = () => {
               {step === 1 ? (
                 <form onSubmit={handleInitiate} noValidate>
                   {/* 1. BANK NAME (Editable Input with Autocomplete Suggestions) */}
-                  <div style={{ marginBottom: '13px', position: 'relative' }} ref={bankDropdownRef}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
-                      <label style={{ fontSize: '13px', color: '#A9BDD7', fontWeight: '500' }}>
-                        Bank Name <span style={{ color: '#EF4444' }}>*</span>
-                      </label>
+                  <div className="bank-link-field" ref={bankDropdownRef}>
+                    <div className="bank-link-label">
+                      <span>Bank Name <span style={{ color: '#EF4444' }}>*</span></span>
                       {selectedBank ? (
-                        <span style={{ fontSize: '11.5px', color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
+                        <span style={{ fontSize: '11px', color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
                           <CheckCircleIcon size={12} />
                           {selectedBank.name}
                         </span>
@@ -1318,19 +1320,13 @@ const CustomerBankAccountsPage = () => {
                     <div style={{ position: 'relative' }}>
                       <input
                         type="text"
-                        className="form-input no-left-icon"
-                        placeholder="Type or select bank name (e.g. State Bank of India, HDFC Bank, ABCD)..."
+                        className={`bank-link-input ${fieldTouched.bankName && fieldErrors.bankName ? 'error' : isBankNameValid ? 'valid' : ''}`}
+                        placeholder="Type or select bank (e.g. State Bank of India, HDFC, ICICI)..."
                         value={bankForm.bankName}
                         onFocus={() => setIsBankDropdownOpen(true)}
                         onChange={handleBankNameChange}
                         onBlur={handleBankBlur}
-                        style={{
-                          paddingLeft: '16px',
-                          paddingRight: '38px',
-                          height: '44px',
-                          fontSize: '13.5px',
-                          borderColor: fieldTouched.bankName && fieldErrors.bankName ? '#EF4444' : isBankNameValid ? '#10B981' : '#17385D'
-                        }}
+                        style={{ paddingRight: '36px' }}
                         autoComplete="off"
                         required
                       />
@@ -1338,23 +1334,23 @@ const CustomerBankAccountsPage = () => {
                         onClick={() => setIsBankDropdownOpen(!isBankDropdownOpen)}
                         style={{
                           position: 'absolute',
-                          right: '12px',
+                          right: '10px',
                           top: '50%',
                           transform: 'translateY(-50%)',
-                          color: '#A9BDD7',
+                          color: '#8BA2C1',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          padding: '4px'
+                          padding: '2px'
                         }}
                       >
-                        <ChevronDownIcon size={16} />
+                        <ChevronDownIcon size={15} />
                       </div>
                     </div>
 
-                    {/* Autocomplete Dropdown List - Displaying Matching Supported Banks */}
+                    {/* Autocomplete Dropdown List */}
                     {isBankDropdownOpen && (
-                      <div className="bank-dropdown-menu">
+                      <div className="bank-dropdown-menu" style={{ maxHeight: '170px' }}>
                         {/* Government Banks */}
                         {filteredGroupedBanks.government.length > 0 && (
                           <div>
@@ -1369,7 +1365,7 @@ const CustomerBankAccountsPage = () => {
                                   onMouseDown={() => handleSelectBank(bank)}
                                   className={`bank-suggestion-item ${isChosen ? 'active' : ''}`}
                                   style={{
-                                    padding: '10px 14px',
+                                    padding: '8px 12px',
                                     background: isChosen ? 'rgba(0, 168, 255, 0.15)' : 'transparent',
                                     cursor: 'pointer',
                                     display: 'flex',
@@ -1377,11 +1373,11 @@ const CustomerBankAccountsPage = () => {
                                     justifyContent: 'space-between'
                                   }}
                                 >
-                                  <span style={{ fontSize: '13.5px', fontWeight: isChosen ? '600' : '500', color: isChosen ? '#00A8FF' : '#FFFFFF' }}>
+                                  <span style={{ fontSize: '12.5px', fontWeight: isChosen ? '600' : '500', color: isChosen ? '#00A8FF' : '#FFFFFF' }}>
                                     {bank.name}
                                   </span>
                                   {isChosen && (
-                                    <CheckIcon size={14} style={{ color: '#00A8FF' }} />
+                                    <CheckIcon size={13} style={{ color: '#00A8FF' }} />
                                   )}
                                 </div>
                               );
@@ -1403,7 +1399,7 @@ const CustomerBankAccountsPage = () => {
                                   onMouseDown={() => handleSelectBank(bank)}
                                   className={`bank-suggestion-item ${isChosen ? 'active' : ''}`}
                                   style={{
-                                    padding: '10px 14px',
+                                    padding: '8px 12px',
                                     background: isChosen ? 'rgba(0, 168, 255, 0.15)' : 'transparent',
                                     cursor: 'pointer',
                                     display: 'flex',
@@ -1411,11 +1407,11 @@ const CustomerBankAccountsPage = () => {
                                     justifyContent: 'space-between'
                                   }}
                                 >
-                                  <span style={{ fontSize: '13.5px', fontWeight: isChosen ? '600' : '500', color: isChosen ? '#00A8FF' : '#FFFFFF' }}>
+                                  <span style={{ fontSize: '12.5px', fontWeight: isChosen ? '600' : '500', color: isChosen ? '#00A8FF' : '#FFFFFF' }}>
                                     {bank.name}
                                   </span>
                                   {isChosen && (
-                                    <CheckIcon size={14} style={{ color: '#00A8FF' }} />
+                                    <CheckIcon size={13} style={{ color: '#00A8FF' }} />
                                   )}
                                 </div>
                               );
@@ -1424,315 +1420,210 @@ const CustomerBankAccountsPage = () => {
                         )}
 
                         {filteredGroupedBanks.government.length === 0 && filteredGroupedBanks.private.length === 0 && (
-                          <div style={{ padding: '14px', textAlign: 'center', color: '#A9BDD7', fontSize: '12px' }}>
-                            No supported bank found matching "{bankForm.bankName}". You can continue with "{bankForm.bankName}" as a custom bank.
+                          <div style={{ padding: '12px', textAlign: 'center', color: '#A9BDD7', fontSize: '11.5px' }}>
+                            No supported bank found matching "{bankForm.bankName}". You can continue with "{bankForm.bankName}" as custom bank.
                           </div>
                         )}
                       </div>
                     )}
 
                     {fieldTouched.bankName && fieldErrors.bankName && (
-                      <div className="field-status-msg error" style={{ marginTop: '4px' }}>
-                        <AlertCircleIcon size={14} />
+                      <div className="field-status-msg error" style={{ marginTop: '3px' }}>
+                        <AlertCircleIcon size={13} />
                         <span>{fieldErrors.bankName}</span>
                       </div>
                     )}
                   </div>
 
-                  {/* 2. ACCOUNT NUMBER (Bank-Wise Rules & Digits Only) */}
-                  <div style={{ marginBottom: '13px' }}>
-                    <label style={{ display: 'block', fontSize: '13px', color: '#A9BDD7', marginBottom: '5px', fontWeight: '500' }}>
-                      Account Number <span style={{ color: '#EF4444' }}>*</span>
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      className="form-input no-left-icon"
-                      placeholder={selectedBank ? `Enter ${selectedBank.name} account number` : 'Enter bank account number'}
-                      value={bankForm.accountNumber}
-                      onChange={handleAccountNumberChange}
-                      onPaste={handleAccountPaste}
-                      onBlur={handleAccountBlur}
-                      maxLength={selectedBank?.accountLength?.max || 18}
-                      style={{
-                        paddingLeft: '16px',
-                        paddingRight: '16px',
-                        height: '44px',
-                        fontSize: '13.5px',
-                        borderColor: fieldTouched.accountNumber && fieldErrors.accountNumber ? '#EF4444' : isAccountNumberValid ? '#10B981' : '#17385D'
-                      }}
-                      required
-                    />
-
-                    {fieldTouched.accountNumber && fieldErrors.accountNumber && (
-                      <div className="field-status-msg error" style={{ marginTop: '4px' }}>
-                        <AlertCircleIcon size={14} />
-                        <span>{fieldErrors.accountNumber}</span>
+                  {/* 2 & 3. ACCOUNT NUMBER & CONFIRM ACCOUNT (2-Column Grid on Laptop/Desktop) */}
+                  <div className="bank-link-row-2">
+                    {/* Account Number */}
+                    <div>
+                      <div className="bank-link-label">
+                        <span>Account Number <span style={{ color: '#EF4444' }}>*</span></span>
+                        {isAccountNumberValid && (
+                          <span style={{ fontSize: '11px', color: '#10B981', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '600' }}>
+                            <CheckCircleIcon size={11} /> {bankForm.accountNumber.length}d
+                          </span>
+                        )}
                       </div>
-                    )}
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        className={`bank-link-input ${fieldTouched.accountNumber && fieldErrors.accountNumber ? 'error' : isAccountNumberValid ? 'valid' : ''}`}
+                        placeholder={selectedBank ? `Account number (${selectedBank.accountLength.min}-${selectedBank.accountLength.max} digits)` : 'Account number'}
+                        value={bankForm.accountNumber}
+                        onChange={handleAccountNumberChange}
+                        onPaste={handleAccountPaste}
+                        onBlur={handleAccountBlur}
+                        maxLength={selectedBank?.accountLength?.max || 18}
+                        style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: '0.5px' }}
+                        required
+                      />
+                      {fieldTouched.accountNumber && fieldErrors.accountNumber && (
+                        <div className="field-status-msg error" style={{ marginTop: '3px' }}>
+                          <AlertCircleIcon size={13} />
+                          <span>{fieldErrors.accountNumber}</span>
+                        </div>
+                      )}
+                    </div>
 
-                    {isAccountNumberValid && (
-                      <div className="field-status-msg success" style={{ marginTop: '4px' }}>
-                        <CheckCircleIcon size={14} />
-                        <span>Valid account length ({bankForm.accountNumber.length} digits)</span>
+                    {/* Confirm Account Number */}
+                    <div>
+                      <div className="bank-link-label">
+                        <span>Confirm Account <span style={{ color: '#EF4444' }}>*</span></span>
+                        {isConfirmAccountValid && (
+                          <span style={{ fontSize: '11px', color: '#10B981', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '600' }}>
+                            <CheckCircleIcon size={11} /> Match
+                          </span>
+                        )}
                       </div>
-                    )}
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        className={`bank-link-input ${fieldTouched.confirmAccountNumber && fieldErrors.confirmAccountNumber ? 'error' : isConfirmAccountValid ? 'valid' : ''}`}
+                        placeholder="Re-enter account number"
+                        value={bankForm.confirmAccountNumber}
+                        onChange={handleConfirmAccountChange}
+                        onPaste={handleConfirmPaste}
+                        onBlur={handleConfirmBlur}
+                        maxLength={selectedBank?.accountLength?.max || 18}
+                        style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: '0.5px' }}
+                        required
+                      />
+                      {pasteWarning && (
+                        <div className="field-status-msg warning" style={{ marginTop: '3px' }}>
+                          <InfoIcon size={13} />
+                          <span>{pasteWarning}</span>
+                        </div>
+                      )}
+                      {fieldTouched.confirmAccountNumber && fieldErrors.confirmAccountNumber && (
+                        <div className="field-status-msg error" style={{ marginTop: '3px' }}>
+                          <AlertCircleIcon size={13} />
+                          <span>{fieldErrors.confirmAccountNumber}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {/* 3. CONFIRM ACCOUNT NUMBER (Match Validation & Anti-Paste Protection) */}
-                  <div style={{ marginBottom: '13px' }}>
-                    <label style={{ display: 'block', fontSize: '13px', color: '#A9BDD7', marginBottom: '5px', fontWeight: '500' }}>
-                      Confirm Account Number <span style={{ color: '#EF4444' }}>*</span>
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      className="form-input no-left-icon"
-                      placeholder="Re-enter bank account number"
-                      value={bankForm.confirmAccountNumber}
-                      onChange={handleConfirmAccountChange}
-                      onPaste={handleConfirmPaste}
-                      onBlur={handleConfirmBlur}
-                      maxLength={selectedBank?.accountLength?.max || 18}
-                      style={{
-                        paddingLeft: '16px',
-                        paddingRight: '16px',
-                        height: '44px',
-                        fontSize: '13.5px',
-                        borderColor: fieldTouched.confirmAccountNumber && fieldErrors.confirmAccountNumber ? '#EF4444' : isConfirmAccountValid ? '#10B981' : '#17385D'
-                      }}
-                      required
-                    />
-
-                    {pasteWarning && (
-                      <div className="field-status-msg warning" style={{ marginTop: '4px' }}>
-                        <InfoIcon size={14} />
-                        <span>{pasteWarning}</span>
-                      </div>
-                    )}
-
-                    {fieldTouched.confirmAccountNumber && fieldErrors.confirmAccountNumber && (
-                      <div className="field-status-msg error" style={{ marginTop: '4px' }}>
-                        <AlertCircleIcon size={14} />
-                        <span>{fieldErrors.confirmAccountNumber}</span>
-                      </div>
-                    )}
-
-                    {isConfirmAccountValid && (
-                      <div className="field-status-msg success" style={{ marginTop: '4px' }}>
-                        <CheckCircleIcon size={14} />
-                        <span>Account numbers match</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 4. IFSC CODE (Structure: [4-char Bank Code] + [Fixed 0] + [6-char Branch Code]) */}
-                  <div style={{ marginBottom: '13px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
-                      <label style={{ fontSize: '13px', color: '#A9BDD7', fontWeight: '500' }}>
-                        IFSC Code <span style={{ color: '#EF4444' }}>*</span>
-                      </label>
+                  {/* 4. IFSC CODE (Unified Segmented Banking Field) */}
+                  <div className="bank-link-field">
+                    <div className="bank-link-label">
+                      <span>IFSC Code <span style={{ color: '#EF4444' }}>*</span></span>
                       {selectedBank ? (
                         <span style={{ fontSize: '11px', color: '#00D5FF', fontWeight: '600' }}>
-                          Fixed Prefix: {selectedBank.ifscPrefix}0
+                          Prefix: {selectedBank.ifscPrefix}0
                         </span>
                       ) : (
-                        <span style={{ fontSize: '11px', color: '#A9BDD7', fontWeight: '500' }}>
+                        <span style={{ fontSize: '11px', color: '#8BA2C1', fontWeight: '500' }}>
                           Format: [Bank: 4 letters] [0] [Branch: 6 chars]
                         </span>
                       )}
                     </div>
 
-                    {/* Visual Segmented IFSC Input */}
                     {selectedBank ? (
-                      /* Case A: Supported Bank - First 5 characters (PREFIX + 0) are FIXED & NON-EDITABLE */
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'stretch',
-                          borderRadius: '8px',
-                          overflow: 'hidden',
-                          border: `1.5px solid ${fieldTouched.ifscCode && fieldErrors.ifscCode ? '#EF4444' : isIfscValid ? '#10B981' : '#17385D'}`
-                        }}
-                      >
-                        {/* Fixed Non-Editable Prefix Box */}
+                      /* Case A: Supported Bank - Prefix + 0 FIXED & NON-EDITABLE */
+                      <div className={`bank-link-ifsc-wrap ${fieldTouched.ifscCode && fieldErrors.ifscCode ? 'error' : isIfscValid ? 'valid' : ''}`}>
                         <div
-                          title={`Configured ${selectedBank.name} code and fixed 5th character '0' (non-editable)`}
-                          style={{
-                            background: 'rgba(0, 168, 255, 0.12)',
-                            borderRight: '1.5px solid #17385D',
-                            padding: '0 14px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            color: '#00D5FF',
-                            fontWeight: '700',
-                            fontSize: '13.5px',
-                            letterSpacing: '1.5px',
-                            userSelect: 'none'
-                          }}
+                          className="bank-link-ifsc-prefix-box"
+                          title={`${selectedBank.name} code with mandatory 5th character '0'`}
                         >
                           <span>{selectedBank.ifscPrefix}0</span>
-                          <span style={{ fontSize: '10px', background: 'rgba(0, 213, 255, 0.2)', padding: '1px 5px', borderRadius: '4px', color: '#00D5FF', fontWeight: '600', letterSpacing: '0' }}>
+                          <span style={{ fontSize: '9px', background: 'rgba(0, 213, 255, 0.2)', padding: '1px 5px', borderRadius: '4px', color: '#00D5FF', fontWeight: '700' }}>
                             FIXED
                           </span>
                         </div>
-
-                        {/* Editable 6 Branch Characters Input */}
                         <input
                           type="text"
+                          className="bank-link-ifsc-branch-input"
                           placeholder="Enter 6-character branch code (e.g. 001234)"
                           value={ifscBranchSuffix}
                           onChange={handleBranchSuffixChange}
                           onPaste={handleIfscPaste}
                           onBlur={handleIfscBlur}
                           maxLength={6}
-                          style={{
-                            flex: 1,
-                            height: '44px',
-                            padding: '0 14px',
-                            background: '#0B172E',
-                            border: 'none',
-                            outline: 'none',
-                            color: '#FFFFFF',
-                            fontSize: '13.5px',
-                            letterSpacing: '1.5px',
-                            textTransform: 'uppercase',
-                            fontWeight: '600'
-                          }}
                           required
                         />
                       </div>
                     ) : (
-                      /* Case B: Custom Bank - First 4 alphabetic editable + 5th '0' fixed + 6 branch characters editable */
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'stretch',
-                          borderRadius: '8px',
-                          overflow: 'hidden',
-                          border: `1.5px solid ${fieldTouched.ifscCode && fieldErrors.ifscCode ? '#EF4444' : isIfscValid ? '#10B981' : '#17385D'}`
-                        }}
-                      >
-                        {/* 1. Editable Bank Code (4 alphabetic characters) */}
+                      /* Case B: Custom Bank - 4-char Bank Code + '0' Fixed + 6-char Branch Code */
+                      <div className={`bank-link-ifsc-wrap ${fieldTouched.ifscCode && fieldErrors.ifscCode ? 'error' : isIfscValid ? 'valid' : ''}`}>
                         <input
                           type="text"
-                          placeholder="AAAA"
+                          className="bank-link-ifsc-custom-code-input"
+                          placeholder="BANK"
                           value={customIfscPrefix}
                           onChange={handleCustomPrefixChange}
                           onPaste={handleIfscPaste}
                           onBlur={handleIfscBlur}
                           maxLength={4}
-                          title="First 4 alphabetic characters of bank code"
-                          style={{
-                            width: '80px',
-                            textAlign: 'center',
-                            height: '44px',
-                            padding: '0 8px',
-                            background: '#0B172E',
-                            border: 'none',
-                            borderRight: '1px solid #17385D',
-                            outline: 'none',
-                            color: '#FFFFFF',
-                            fontSize: '13.5px',
-                            letterSpacing: '1.5px',
-                            textTransform: 'uppercase',
-                            fontWeight: '700'
-                          }}
+                          title="4-letter bank code"
                           required
                         />
-
-                        {/* 2. Fixed 5th character '0' (non-editable) */}
                         <div
-                          title="5th character of Indian IFSC is always fixed as 0"
-                          style={{
-                            background: 'rgba(0, 168, 255, 0.12)',
-                            borderRight: '1px solid #17385D',
-                            padding: '0 12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#00D5FF',
-                            fontWeight: '800',
-                            fontSize: '15px',
-                            userSelect: 'none'
-                          }}
+                          className="bank-link-ifsc-zero-box"
+                          title="5th character of Indian IFSC is always 0"
                         >
                           0
                         </div>
-
-                        {/* 3. Editable Branch Code (6 alphanumeric characters) */}
                         <input
                           type="text"
+                          className="bank-link-ifsc-branch-input"
                           placeholder="Branch code (6 chars, e.g. 123456)"
                           value={ifscBranchSuffix}
                           onChange={handleBranchSuffixChange}
                           onPaste={handleIfscPaste}
                           onBlur={handleIfscBlur}
                           maxLength={6}
-                          title="Remaining 6 branch-code characters"
-                          style={{
-                            flex: 1,
-                            height: '44px',
-                            padding: '0 14px',
-                            background: '#0B172E',
-                            border: 'none',
-                            outline: 'none',
-                            color: '#FFFFFF',
-                            fontSize: '13.5px',
-                            letterSpacing: '1.5px',
-                            textTransform: 'uppercase',
-                            fontWeight: '600'
-                          }}
+                          title="6 branch characters"
                           required
                         />
                       </div>
                     )}
 
                     {branchStatus.loading && (
-                      <div className="field-status-msg info" style={{ marginTop: '4px' }}>
-                        <InfoIcon size={14} />
-                        <span>{isDemoMode() ? 'Validating IFSC format in demo mode...' : 'Verifying branch IFSC against RBI registry...'}</span>
+                      <div className="field-status-msg info" style={{ marginTop: '3px' }}>
+                        <InfoIcon size={13} />
+                        <span>{isDemoMode() ? 'Validating IFSC format...' : 'Verifying branch IFSC against RBI registry...'}</span>
                       </div>
                     )}
 
                     {fieldTouched.ifscCode && fieldErrors.ifscCode && (
-                      <div className="field-status-msg error" style={{ marginTop: '4px' }}>
-                        <AlertCircleIcon size={14} />
+                      <div className="field-status-msg error" style={{ marginTop: '3px' }}>
+                        <AlertCircleIcon size={13} />
                         <span>{fieldErrors.ifscCode}</span>
                       </div>
                     )}
 
                     {isIfscValid && (
-                      <div className="field-status-msg success" style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '6px', padding: '6px 10px', marginTop: '5px' }}>
-                        <CheckCircleIcon size={14} style={{ flexShrink: 0, marginTop: '2px' }} />
-                        <span style={{ fontSize: '11.5px', color: '#86efac' }}>
-                          Complete IFSC: <strong>{currentFullIfsc}</strong> • {branchStatus.message || 'IFSC format validated in demo mode.'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '6px', padding: '4px 8px', marginTop: '4px' }}>
+                        <CheckCircleIcon size={13} style={{ color: '#10B981', flexShrink: 0 }} />
+                        <span style={{ fontSize: '11px', color: '#86efac', lineHeight: 1.3 }}>
+                          Complete IFSC: <strong style={{ letterSpacing: '0.5px' }}>{currentFullIfsc}</strong> • {branchStatus.message || 'Validated'}
                         </span>
                       </div>
                     )}
                   </div>
 
                   {/* Primary Toggle */}
-                  <div style={{ marginBottom: '14px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#FFFFFF' }}>
-                      <input
-                        type="checkbox"
-                        checked={bankForm.isPrimary}
-                        onChange={(e) => setBankForm({ ...bankForm, isPrimary: e.target.checked })}
-                      />
-                      <span>Set this account as Primary for payouts and settlements</span>
-                    </label>
-                  </div>
+                  <label className="bank-link-primary-check">
+                    <input
+                      type="checkbox"
+                      checked={bankForm.isPrimary}
+                      onChange={(e) => setBankForm({ ...bankForm, isPrimary: e.target.checked })}
+                    />
+                    <span>Set this account as Primary for payouts and settlements</span>
+                  </label>
 
-                  <div className="modal-footer" style={{ padding: '12px 0 0 0', marginTop: '6px', borderTop: '1px solid #162438', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  {/* Form Action Buttons */}
+                  <div className="bank-link-footer">
                     <button
                       type="button"
                       onClick={closeModal}
                       className="auth-button secondary"
-                      style={{ width: 'auto', padding: '0 16px', height: '40px', fontSize: '13px' }}
+                      style={{ width: 'auto', padding: '0 16px', height: '36px', fontSize: '12.5px', margin: 0 }}
                     >
                       Cancel
                     </button>
@@ -1742,9 +1633,11 @@ const CustomerBankAccountsPage = () => {
                       className="auth-button"
                       style={{
                         width: 'auto',
-                        padding: '0 22px',
-                        height: '40px',
-                        fontSize: '13px',
+                        padding: '0 20px',
+                        height: '36px',
+                        fontSize: '12.5px',
+                        fontWeight: '600',
+                        margin: 0,
                         opacity: (!isFormValid || isSubmitting) ? 0.5 : 1,
                         cursor: (!isFormValid || isSubmitting) ? 'not-allowed' : 'pointer'
                       }}
@@ -1932,12 +1825,12 @@ const CustomerBankAccountsPage = () => {
                     </div>
                   ) : null}
 
-                  <div className="modal-footer" style={{ padding: '12px 0 0 0', marginTop: '6px', borderTop: '1px solid #162438', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <div className="bank-link-footer">
                     <button
                       type="button"
                       onClick={() => setStep(1)}
                       className="auth-button secondary"
-                      style={{ width: 'auto', padding: '0 16px', height: '40px', fontSize: '13px' }}
+                      style={{ width: 'auto', padding: '0 16px', height: '36px', fontSize: '12.5px', margin: 0 }}
                     >
                       Back
                     </button>
@@ -1945,7 +1838,7 @@ const CustomerBankAccountsPage = () => {
                       type="submit"
                       disabled={isSubmitting || otpValue.length !== 6}
                       className="auth-button"
-                      style={{ width: 'auto', padding: '0 22px', height: '40px', fontSize: '13px' }}
+                      style={{ width: 'auto', padding: '0 20px', height: '36px', fontSize: '12.5px', fontWeight: '600', margin: 0 }}
                     >
                       {isSubmitting ? 'Verifying...' : 'Verify & Link Account'}
                     </button>

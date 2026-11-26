@@ -3,9 +3,9 @@ const billCategoryService = require('./billCategoryService');
 
 class BillerService {
   /**
-   * Get billers filtered by category (required), with optional pagination & search
+   * Get billers filtered by category (required), with optional pagination, search & state filter
    */
-  async getBillersByCategory({ category, categoryId, page = 1, limit = 50, search = '' }) {
+  async getBillersByCategory({ category, categoryId, page = 1, limit = 50, search = '', state = '' }) {
     const categoryIdentifier = categoryId || category;
 
     if (!categoryIdentifier) {
@@ -29,7 +29,7 @@ class BillerService {
     const offset = (pageNum - 1) * limitNum;
 
     let query = `
-      SELECT b.id, b.biller_name, b.biller_code, b.status,
+      SELECT b.id, b.biller_name, b.biller_code, b.state, b.region_name, b.districts, b.status,
              b.param_name, b.param_placeholder, b.param_regex,
              b.param_min_length, b.param_max_length, b.param_help_text,
              b.is_demo,
@@ -40,10 +40,15 @@ class BillerService {
     `;
     const params = [categoryRecord.id];
 
+    if (state && String(state).trim() && String(state).toUpperCase() !== 'ALL') {
+      query += ` AND b.state = ?`;
+      params.push(String(state).trim());
+    }
+
     if (search && String(search).trim()) {
-      query += ` AND (b.biller_name LIKE ? OR b.biller_code LIKE ?)`;
+      query += ` AND (b.biller_name LIKE ? OR b.biller_code LIKE ? OR b.state LIKE ? OR b.region_name LIKE ? OR b.districts LIKE ?)`;
       const term = `%${String(search).trim()}%`;
-      params.push(term, term);
+      params.push(term, term, term, term, term);
     }
 
     // Get count
@@ -51,13 +56,16 @@ class BillerService {
     const [countRows] = await db.execute(countQuery, params);
     const totalRecords = countRows[0]?.total || 0;
 
-    query += ` ORDER BY b.biller_name ASC LIMIT ${limitNum} OFFSET ${offset}`;
+    query += ` ORDER BY b.state ASC, b.biller_name ASC LIMIT ${limitNum} OFFSET ${offset}`;
     const [rows] = await db.execute(query, params);
 
     const billers = rows.map(r => ({
       id: r.id,
       billerName: r.biller_name,
       billerCode: r.biller_code,
+      state: r.state || 'National',
+      regionName: r.region_name || null,
+      districts: r.districts ? r.districts.split(',').map(d => d.trim()).filter(Boolean) : [],
       status: r.status,
       isDemo: Boolean(r.is_demo),
       category: {
@@ -95,7 +103,7 @@ class BillerService {
     if (!billerId) return null;
 
     const [rows] = await db.execute(
-      `SELECT b.id, b.biller_name, b.biller_code, b.status,
+      `SELECT b.id, b.biller_name, b.biller_code, b.state, b.region_name, b.districts, b.status,
               b.param_name, b.param_placeholder, b.param_regex,
               b.param_min_length, b.param_max_length, b.param_help_text,
               b.is_demo,
@@ -113,6 +121,9 @@ class BillerService {
       id: r.id,
       billerName: r.biller_name,
       billerCode: r.biller_code,
+      state: r.state || 'National',
+      regionName: r.region_name || null,
+      districts: r.districts ? r.districts.split(',').map(d => d.trim()).filter(Boolean) : [],
       status: r.status,
       isDemo: Boolean(r.is_demo),
       categoryId: r.category_id,
