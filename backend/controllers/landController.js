@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const db = require('../config/db');
+const { verifyUserMpin } = require('../services/mpinService');
 const NotificationService = require('../services/notificationService');
 
 // Helper: Format amount as Indian Rupee string
@@ -388,6 +389,18 @@ exports.createOrder = async (req, res) => {
 
         await conn.beginTransaction();
 
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
+
         // 2. Fetch Project & Verify Availability (with row lock)
         const [projects] = await conn.query(
             `SELECT id, project_name, unit_name, price_per_unit, available_units, status
@@ -543,6 +556,18 @@ exports.createExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
 
         const [holdings] = await conn.query(
             `SELECT h.id, h.user_id, h.project_id, h.units_owned, h.status,
@@ -781,6 +806,18 @@ exports.approveExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
         const [rows] = await conn.query(
             `SELECT e.*, p.project_name, p.unit_name
              FROM land_exit_requests e
@@ -853,6 +890,18 @@ exports.rejectExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
         const [rows] = await conn.query(
             `SELECT e.*, p.project_name, p.unit_name
              FROM land_exit_requests e
@@ -925,6 +974,18 @@ exports.completeExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
         const [rows] = await conn.query(
             `SELECT e.*, p.project_name, p.unit_name, p.total_units, p.available_units
              FROM land_exit_requests e
@@ -1758,6 +1819,18 @@ exports.approveOrder = async (req, res) => {
 
         await conn.beginTransaction();
 
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
+
         // 1. Fetch Order with row-level lock
         const [orders] = await conn.query(
             `SELECT 
@@ -1949,6 +2022,18 @@ exports.createExitRequest = async (req, res) => {
 
         await conn.beginTransaction();
 
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
+
         const [holdings] = await conn.query(
             `SELECT h.id, h.user_id, h.project_id, h.units_owned, h.status,
                     p.project_name, p.unit_name, p.price_per_unit
@@ -2186,6 +2271,18 @@ exports.approveExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
         const [rows] = await conn.query(
             `SELECT e.*, p.project_name, p.unit_name
              FROM land_exit_requests e
@@ -2258,6 +2355,18 @@ exports.rejectExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
         const [rows] = await conn.query(
             `SELECT e.*, p.project_name, p.unit_name
              FROM land_exit_requests e
@@ -2330,6 +2439,18 @@ exports.completeExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
         const [rows] = await conn.query(
             `SELECT e.*, p.project_name, p.unit_name, p.total_units, p.available_units
              FROM land_exit_requests e
@@ -2454,6 +2575,18 @@ exports.rejectOrder = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
 
         // 1. Fetch Order with row-level lock
         const [orders] = await conn.query(
@@ -2588,6 +2721,18 @@ exports.createExitRequest = async (req, res) => {
 
         await conn.beginTransaction();
 
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
+
         const [holdings] = await conn.query(
             `SELECT h.id, h.user_id, h.project_id, h.units_owned, h.status,
                     p.project_name, p.unit_name, p.price_per_unit
@@ -2825,6 +2970,18 @@ exports.approveExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
         const [rows] = await conn.query(
             `SELECT e.*, p.project_name, p.unit_name
              FROM land_exit_requests e
@@ -2897,6 +3054,18 @@ exports.rejectExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
         const [rows] = await conn.query(
             `SELECT e.*, p.project_name, p.unit_name
              FROM land_exit_requests e
@@ -2969,6 +3138,18 @@ exports.completeExitRequest = async (req, res) => {
         }
 
         await conn.beginTransaction();
+
+        if (req.body?.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, conn);
+            if (!mpinCheck.ok) {
+                await conn.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+        }
         const [rows] = await conn.query(
             `SELECT e.*, p.project_name, p.unit_name, p.total_units, p.available_units
              FROM land_exit_requests e

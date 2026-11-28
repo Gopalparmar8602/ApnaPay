@@ -6,6 +6,8 @@ import notificationService from '../../services/notificationService';
 import bankAccountService from '../../services/bankAccountService';
 import upiService from '../../services/upiService';
 import walletService from '../../services/walletService';
+import mpinService from '../../services/mpinService';
+import MpinModal from '../../components/MpinModal';
 import {
   UserIcon,
   MailIcon,
@@ -236,6 +238,9 @@ const CustomerProfilePage = () => {
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [securityModalOpen, setSecurityModalOpen] = useState(false);
+  const [mpinStatus, setMpinStatus] = useState({ mpinSet: false, mpinUpdatedAt: null, isLocked: false });
+  const [mpinModalOpen, setMpinModalOpen] = useState(false);
+  const [mpinModalMode, setMpinModalMode] = useState('set');
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -248,14 +253,18 @@ const CustomerProfilePage = () => {
 
     const loadProfileData = async () => {
       try {
-        const [banksRes, upiRes, walletRes, prefsRes] = await Promise.allSettled([
+        const [banksRes, upiRes, walletRes, prefsRes, mpinRes] = await Promise.allSettled([
           bankAccountService.getLinkedAccounts(),
           upiService.getUpiHandles(),
           walletService.getOverview(),
-          notificationService.getPreferences()
+          notificationService.getPreferences(),
+          mpinService.getStatus()
         ]);
 
         if (isMounted) {
+          if (mpinRes.status === 'fulfilled' && mpinRes.value?.data) {
+            setMpinStatus(mpinRes.value.data);
+          }
           if (banksRes.status === 'fulfilled') {
             const data = banksRes.value?.data || banksRes.value || [];
             setBankAccounts(Array.isArray(data) ? data : []);
@@ -1654,6 +1663,70 @@ const CustomerProfilePage = () => {
               </button>
             </div>
             <div className="admin-land-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '65vh', overflowY: 'auto' }}>
+              {/* Centralized 4-Digit Payment MPIN Card */}
+              <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '10px', padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: '#FFFFFF' }}>4-Digit Payment MPIN</span>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: '700',
+                        padding: '2px 7px',
+                        borderRadius: '999px',
+                        background: mpinStatus.mpinSet ? 'rgba(0, 229, 153, 0.14)' : 'rgba(245, 158, 11, 0.14)',
+                        color: mpinStatus.mpinSet ? '#00E599' : '#FBBF24'
+                      }}
+                    >
+                      {mpinStatus.mpinSet ? 'PIN Set' : 'PIN Not Set'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#A9BDD7', marginTop: '2px' }}>
+                    Common PIN for Wallet, Transfers &amp; Payments
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {mpinStatus.mpinSet ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMpinModalMode('change');
+                          setMpinModalOpen(true);
+                        }}
+                        className="auth-button secondary"
+                        style={{ width: 'auto', padding: '0 10px', height: '30px', fontSize: '11px', margin: 0 }}
+                      >
+                        Change
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMpinModalMode('forgot');
+                          setMpinModalOpen(true);
+                        }}
+                        className="auth-button secondary"
+                        style={{ width: 'auto', padding: '0 10px', height: '30px', fontSize: '11px', margin: 0 }}
+                      >
+                        Reset
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMpinModalMode('set');
+                        setMpinModalOpen(true);
+                      }}
+                      className="auth-button primary"
+                      style={{ width: 'auto', padding: '0 12px', height: '30px', fontSize: '11px', margin: 0 }}
+                    >
+                      Set MPIN
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '10px', padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: '700', color: '#FFFFFF' }}>Account Password</div>
@@ -1708,6 +1781,17 @@ const CustomerProfilePage = () => {
         </div>
       )}
 
+      <MpinModal
+        open={mpinModalOpen}
+        initialMode={mpinModalMode}
+        onClose={() => setMpinModalOpen(false)}
+        onSuccess={(_, updatedStatus) => {
+          setMpinModalOpen(false);
+          if (updatedStatus) setMpinStatus(updatedStatus);
+          else mpinService.getStatus().then((r) => r?.data && setMpinStatus(r.data)).catch(() => {});
+          showToast('Payment MPIN updated successfully.');
+        }}
+      />
     </DashboardLayout>
   );
 };

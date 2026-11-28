@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { verifyUserMpin } = require('../services/mpinService');
 
 // Helper: Format amount as Indian Rupee string
 const formatCurrency = (amount, currency = 'INR') => {
@@ -706,11 +707,13 @@ exports.getWalletLimits = async (req, res) => {
 // 6. POST /api/wallet/add-money - Deposit / Top-up Funds
 // ==========================================
 exports.addMoney = async (req, res) => {
+    let connection;
     try {
         const userId = req.user?.userId;
         const amount = parseFloat(req.body.amount);
         const paymentMethod = req.body.paymentMethod || 'UPI';
         const sourceLabel = req.body.sourceLabel || '';
+        const mpin = req.body.mpin;
 
         if (!userId) {
             return res.status(401).json({ success: false, message: 'Unauthorized access.' });
@@ -724,23 +727,41 @@ exports.addMoney = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Maximum top-up amount per transaction is ₹1,00,000.' });
         }
 
-        // Get user wallet & KYC cap
-        let [wallets] = await db.execute('SELECT id, currency, available_balance FROM wallets WHERE user_id = ? LIMIT 1', [userId]);
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const mpinCheck = await verifyUserMpin(userId, mpin, connection);
+        if (!mpinCheck.ok) {
+            await connection.rollback();
+            return res.status(mpinCheck.status).json({
+                success: false,
+                code: mpinCheck.code,
+                isLocked: Boolean(mpinCheck.isLocked),
+                lockedUntil: mpinCheck.lockedUntil || null,
+                remainingSeconds: mpinCheck.remainingSeconds || 0,
+                remainingAttempts: mpinCheck.remainingAttempts,
+                message: mpinCheck.message
+            });
+        }
+
+        // Get user wallet & KYC cap (locked for atomic update)
+        let [wallets] = await connection.execute('SELECT id, currency, available_balance FROM wallets WHERE user_id = ? LIMIT 1 FOR UPDATE', [userId]);
         if (wallets.length === 0) {
-            await db.execute('INSERT INTO wallets (user_id, currency, available_balance, status) VALUES (?, "INR", 0.00, "active")', [userId]);
-            [wallets] = await db.execute('SELECT id, currency, available_balance FROM wallets WHERE user_id = ? LIMIT 1', [userId]);
+            await connection.execute('INSERT INTO wallets (user_id, currency, available_balance, status) VALUES (?, "INR", 0.00, "active")', [userId]);
+            [wallets] = await connection.execute('SELECT id, currency, available_balance FROM wallets WHERE user_id = ? LIMIT 1 FOR UPDATE', [userId]);
         }
         const wallet = wallets[0];
         const prevBal = parseFloat(wallet.available_balance) || 0;
         const newBal = toDecimal(prevBal + amount);
 
-        const [kycRows] = await db.execute(
+        const [kycRows] = await connection.execute(
             'SELECT verification_status FROM kyc_records WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
             [userId]
         );
         const kycStatus = kycRows.length > 0 ? kycRows[0].verification_status : 'unverified';
         const maxCap = kycStatus === 'verified' ? 200000 : 100000;
         if (newBal > maxCap) {
+            await connection.rollback();
             const headroom = Math.max(0, maxCap - prevBal);
             return res.status(400).json({
                 success: false,
@@ -749,13 +770,13 @@ exports.addMoney = async (req, res) => {
         }
 
         // 1. Update wallet balance
-        await db.execute('UPDATE wallets SET available_balance = ? WHERE id = ?', [newBal, wallet.id]);
+        await connection.execute('UPDATE wallets SET available_balance = ? WHERE id = ?', [newBal, wallet.id]);
 
         // 2. Create general transaction record first to obtain unique reference_id
         const refNum = `TOPUP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const utrNumber = `UTR${Date.now().toString().slice(-9)}${Math.floor(100 + Math.random() * 900)}`;
         const methodDesc = sourceLabel ? `${paymentMethod} (${sourceLabel})` : paymentMethod;
-        const [txRes] = await db.execute(
+        const [txRes] = await connection.execute(
             `INSERT INTO transactions (user_id, transaction_type, amount, status, description, created_at)
              VALUES (?, 'deposit', ?, 'completed', ?, NOW())`,
             [userId, amount, `Wallet top-up via ${methodDesc} (${refNum})`]
@@ -763,7 +784,7 @@ exports.addMoney = async (req, res) => {
         const txId = txRes.insertId;
 
         // 3. Create ledger transaction with unique txId
-        const [ltRes] = await db.execute(
+        const [ltRes] = await connection.execute(
             `INSERT INTO ledger_transactions (reference_type, reference_id, transaction_type, status, description, created_at)
              VALUES ('wallet_topup', ?, 'wallet_credit', 'completed', ?, NOW())`,
             [txId, `Funds added via ${methodDesc} (${refNum})`]
@@ -771,11 +792,13 @@ exports.addMoney = async (req, res) => {
         const ltId = ltRes.insertId;
 
         // 4. Create ledger entry
-        await db.execute(
+        await connection.execute(
             `INSERT INTO ledger_entries (ledger_transaction_id, wallet_id, entry_type, amount, created_at)
              VALUES (?, ?, 'credit', ?, NOW())`,
             [ltId, wallet.id, amount]
         );
+
+        await connection.commit();
 
         // 5. Send notification
         try {
@@ -806,8 +829,11 @@ exports.addMoney = async (req, res) => {
             }
         });
     } catch (err) {
+        if (connection) await connection.rollback().catch(() => {});
         console.error('Add Money Error:', err);
         return res.status(500).json({ success: false, message: 'Failed to add money to wallet.' });
+    } finally {
+        if (connection) connection.release();
     }
 };
 
@@ -815,6 +841,7 @@ exports.addMoney = async (req, res) => {
 // 7. POST /api/wallet/withdraw - Withdraw Funds to Bank
 // ==========================================
 exports.withdrawMoney = async (req, res) => {
+    let connection;
     try {
         const userId = req.user?.userId;
         const amount = parseFloat(req.body.amount);
@@ -822,6 +849,7 @@ exports.withdrawMoney = async (req, res) => {
         const bankAccountId = req.body.bankAccountId;
         const transferMode = (req.body.transferMode || 'IMPS').toUpperCase();
         let ifscCode = req.body.ifscCode || '';
+        const mpin = req.body.mpin;
 
         if (!userId) {
             return res.status(401).json({ success: false, message: 'Unauthorized access.' });
@@ -831,10 +859,27 @@ exports.withdrawMoney = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Minimum withdrawal amount is ₹1.' });
         }
 
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const mpinCheck = await verifyUserMpin(userId, mpin, connection);
+        if (!mpinCheck.ok) {
+            await connection.rollback();
+            return res.status(mpinCheck.status).json({
+                success: false,
+                code: mpinCheck.code,
+                isLocked: Boolean(mpinCheck.isLocked),
+                lockedUntil: mpinCheck.lockedUntil || null,
+                remainingSeconds: mpinCheck.remainingSeconds || 0,
+                remainingAttempts: mpinCheck.remainingAttempts,
+                message: mpinCheck.message
+            });
+        }
+
         // If bankAccountId is provided, verify ownership & pull real bank details
         if (bankAccountId) {
             try {
-                const [bankRows] = await db.execute(
+                const [bankRows] = await connection.execute(
                     'SELECT bank_name, account_last4, ifsc_code FROM bank_accounts WHERE id = ? AND user_id = ? LIMIT 1',
                     [bankAccountId, userId]
                 );
@@ -847,8 +892,9 @@ exports.withdrawMoney = async (req, res) => {
             } catch (_) { }
         }
 
-        const [wallets] = await db.execute('SELECT id, currency, available_balance FROM wallets WHERE user_id = ? LIMIT 1', [userId]);
+        const [wallets] = await connection.execute('SELECT id, currency, available_balance FROM wallets WHERE user_id = ? LIMIT 1 FOR UPDATE', [userId]);
         if (wallets.length === 0) {
+            await connection.rollback();
             return res.status(404).json({ success: false, message: 'Wallet not found.' });
         }
 
@@ -856,6 +902,7 @@ exports.withdrawMoney = async (req, res) => {
         const prevBal = parseFloat(wallet.available_balance) || 0;
 
         if (prevBal < amount) {
+            await connection.rollback();
             return res.status(400).json({
                 success: false,
                 message: `Insufficient wallet balance. Available balance: ₹${prevBal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
@@ -865,12 +912,12 @@ exports.withdrawMoney = async (req, res) => {
         const newBal = toDecimal(prevBal - amount);
 
         // 1. Update wallet balance
-        await db.execute('UPDATE wallets SET available_balance = ? WHERE id = ?', [newBal, wallet.id]);
+        await connection.execute('UPDATE wallets SET available_balance = ? WHERE id = ?', [newBal, wallet.id]);
 
         // 2. Create general transaction record first to obtain unique reference_id
         const refNum = `WTH-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const utrNumber = `${transferMode}${Date.now().toString().slice(-9)}${Math.floor(10 + Math.random() * 90)}`;
-        const [txRes] = await db.execute(
+        const [txRes] = await connection.execute(
             `INSERT INTO transactions (user_id, transaction_type, amount, status, description, created_at)
              VALUES (?, 'withdrawal', ?, 'completed', ?, NOW())`,
             [userId, amount, `${transferMode} withdrawal to ${bankName} (${refNum})`]
@@ -878,7 +925,7 @@ exports.withdrawMoney = async (req, res) => {
         const txId = txRes.insertId;
 
         // 3. Create ledger transaction with unique txId
-        const [ltRes] = await db.execute(
+        const [ltRes] = await connection.execute(
             `INSERT INTO ledger_transactions (reference_type, reference_id, transaction_type, status, description, created_at)
              VALUES ('wallet_withdrawal', ?, 'wallet_debit', 'completed', ?, NOW())`,
             [txId, `${transferMode} withdrawal to ${bankName} (${refNum})`]
@@ -886,11 +933,13 @@ exports.withdrawMoney = async (req, res) => {
         const ltId = ltRes.insertId;
 
         // 4. Create ledger entry
-        await db.execute(
+        await connection.execute(
             `INSERT INTO ledger_entries (ledger_transaction_id, wallet_id, entry_type, amount, created_at)
              VALUES (?, ?, 'debit', ?, NOW())`,
             [ltId, wallet.id, amount]
         );
+
+        await connection.commit();
 
         // 5. Send notification
         try {
@@ -922,8 +971,11 @@ exports.withdrawMoney = async (req, res) => {
             }
         });
     } catch (err) {
+        if (connection) await connection.rollback().catch(() => {});
         console.error('Withdraw Money Error:', err);
         return res.status(500).json({ success: false, message: 'Failed to process withdrawal.' });
+    } finally {
+        if (connection) connection.release();
     }
 };
 
@@ -931,11 +983,13 @@ exports.withdrawMoney = async (req, res) => {
 // 8. POST /api/wallet/transfer - Wallet-to-Wallet Transfer
 // ==========================================
 exports.transferWallet = async (req, res) => {
+    let connection;
     try {
         const userId = req.user?.userId;
         const amount = parseFloat(req.body.amount);
         const recipient = String(req.body.recipient || '').trim();
         const note = String(req.body.note || '').trim();
+        const mpin = req.body.mpin;
 
         if (!userId) {
             return res.status(401).json({ success: false, message: 'Unauthorized access.' });
@@ -949,8 +1003,26 @@ exports.transferWallet = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Please enter a valid transfer amount (minimum ₹1).' });
         }
 
-        const [wallets] = await db.execute('SELECT id, currency, available_balance FROM wallets WHERE user_id = ? LIMIT 1', [userId]);
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const mpinCheck = await verifyUserMpin(userId, mpin, connection);
+        if (!mpinCheck.ok) {
+            await connection.rollback();
+            return res.status(mpinCheck.status).json({
+                success: false,
+                code: mpinCheck.code,
+                isLocked: Boolean(mpinCheck.isLocked),
+                lockedUntil: mpinCheck.lockedUntil || null,
+                remainingSeconds: mpinCheck.remainingSeconds || 0,
+                remainingAttempts: mpinCheck.remainingAttempts,
+                message: mpinCheck.message
+            });
+        }
+
+        const [wallets] = await connection.execute('SELECT id, currency, available_balance FROM wallets WHERE user_id = ? LIMIT 1 FOR UPDATE', [userId]);
         if (wallets.length === 0) {
+            await connection.rollback();
             return res.status(404).json({ success: false, message: 'Wallet not found.' });
         }
 
@@ -958,6 +1030,7 @@ exports.transferWallet = async (req, res) => {
         const prevBal = parseFloat(senderWallet.available_balance) || 0;
 
         if (prevBal < amount) {
+            await connection.rollback();
             return res.status(400).json({
                 success: false,
                 message: `Insufficient wallet balance. Available balance: ${formatCurrency(prevBal)}`
@@ -993,30 +1066,31 @@ exports.transferWallet = async (req, res) => {
         } catch (_) { }
 
         if (receiverUser && Number(receiverUser.id) === Number(userId)) {
+            await connection.rollback();
             return res.status(400).json({ success: false, message: 'Cannot transfer to your own wallet.' });
         }
 
         const newBal = toDecimal(prevBal - amount);
-        await db.execute('UPDATE wallets SET available_balance = ? WHERE id = ?', [newBal, senderWallet.id]);
+        await connection.execute('UPDATE wallets SET available_balance = ? WHERE id = ?', [newBal, senderWallet.id]);
 
         const refNum = `WLTTR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const utrNumber = `WLT${Date.now().toString().slice(-9)}${Math.floor(10 + Math.random() * 90)}`;
         const recipientLabel = receiverUser ? `${receiverUser.full_name} (${recipient})` : recipient;
         const desc = `Wallet transfer to ${recipientLabel}${note ? ` - ${note}` : ''} (${refNum})`;
 
-        const [txRes] = await db.execute(
+        const [txRes] = await connection.execute(
             `INSERT INTO transactions (user_id, transaction_type, amount, status, description, created_at)
              VALUES (?, 'transfer', ?, 'completed', ?, NOW())`,
             [userId, amount, desc]
         );
         const txId = txRes.insertId;
 
-        const [ltRes] = await db.execute(
+        const [ltRes] = await connection.execute(
             `INSERT INTO ledger_transactions (reference_type, reference_id, transaction_type, status, description, created_at)
              VALUES ('wallet_transfer', ?, 'wallet_debit', 'completed', ?, NOW())`,
             [txId, desc]
         );
-        await db.execute(
+        await connection.execute(
             `INSERT INTO ledger_entries (ledger_transaction_id, wallet_id, entry_type, amount, created_at)
              VALUES (?, ?, 'debit', ?, NOW())`,
             [ltRes.insertId, senderWallet.id, amount]
@@ -1025,32 +1099,34 @@ exports.transferWallet = async (req, res) => {
         // Credit receiver wallet if internal ApnaPay user
         if (receiverUser) {
             try {
-                let [rWallets] = await db.execute('SELECT id, available_balance FROM wallets WHERE user_id = ? LIMIT 1', [receiverUser.id]);
+                let [rWallets] = await connection.execute('SELECT id, available_balance FROM wallets WHERE user_id = ? LIMIT 1 FOR UPDATE', [receiverUser.id]);
                 if (rWallets.length === 0) {
-                    await db.execute('INSERT INTO wallets (user_id, currency, available_balance, status) VALUES (?, "INR", 0.00, "active")', [receiverUser.id]);
-                    [rWallets] = await db.execute('SELECT id, available_balance FROM wallets WHERE user_id = ? LIMIT 1', [receiverUser.id]);
+                    await connection.execute('INSERT INTO wallets (user_id, currency, available_balance, status) VALUES (?, "INR", 0.00, "active")', [receiverUser.id]);
+                    [rWallets] = await connection.execute('SELECT id, available_balance FROM wallets WHERE user_id = ? LIMIT 1 FOR UPDATE', [receiverUser.id]);
                 }
                 const rWallet = rWallets[0];
                 const rNewBal = toDecimal((parseFloat(rWallet.available_balance) || 0) + amount);
-                await db.execute('UPDATE wallets SET available_balance = ? WHERE id = ?', [rNewBal, rWallet.id]);
+                await connection.execute('UPDATE wallets SET available_balance = ? WHERE id = ?', [rNewBal, rWallet.id]);
 
-                const [rTxRes] = await db.execute(
+                const [rTxRes] = await connection.execute(
                     `INSERT INTO transactions (user_id, transaction_type, amount, status, description, created_at)
                      VALUES (?, 'deposit', ?, 'completed', ?, NOW())`,
                     [receiverUser.id, amount, `Wallet transfer received (${refNum})`]
                 );
-                const [rLtRes] = await db.execute(
+                const [rLtRes] = await connection.execute(
                     `INSERT INTO ledger_transactions (reference_type, reference_id, transaction_type, status, description, created_at)
                      VALUES ('wallet_transfer_in', ?, 'wallet_credit', 'completed', ?, NOW())`,
                     [rTxRes.insertId, `Wallet transfer received (${refNum})`]
                 );
-                await db.execute(
+                await connection.execute(
                     `INSERT INTO ledger_entries (ledger_transaction_id, wallet_id, entry_type, amount, created_at)
                      VALUES (?, ?, 'credit', ?, NOW())`,
                     [rLtRes.insertId, rWallet.id, amount]
                 );
             } catch (_) { }
         }
+
+        await connection.commit();
 
         try {
             const NotificationService = require('../services/notificationService');
@@ -1080,8 +1156,11 @@ exports.transferWallet = async (req, res) => {
             }
         });
     } catch (err) {
+        if (connection) await connection.rollback().catch(() => {});
         console.error('Wallet Transfer Error:', err);
         return res.status(500).json({ success: false, message: 'Failed to process wallet transfer.' });
+    } finally {
+        if (connection) connection.release();
     }
 };
 

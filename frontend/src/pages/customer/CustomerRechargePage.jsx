@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import walletService from '../../services/walletService';
 import bankAccountService from '../../services/bankAccountService';
+import MpinModal from '../../components/MpinModal';
 import {
   SmartphoneIcon,
   SearchIcon,
@@ -56,6 +57,7 @@ const CustomerRechargePage = () => {
   const [rechargePin, setRechargePin] = useState('');
   const [showRechargePin, setShowRechargePin] = useState(false);
   const [pinError, setPinError] = useState('');
+  const [showSetMpinModal, setShowSetMpinModal] = useState(false);
 
   // Submission & feedback
   const [submitting, setSubmitting] = useState(false);
@@ -214,7 +216,9 @@ const CustomerRechargePage = () => {
         operator_id: Number(selectedOperatorId || selectedOperator?.id || 1),
         plan_id: selectedPlan ? selectedPlan.id : undefined,
         mobile_number: mobileNumber,
-        amount: amt
+        amount: amt,
+        payment_source: paymentSource,
+        ...(paymentSource === 'wallet' ? { mpin: rechargePin } : {})
       });
       setReceiptData(
         res?.data?.data || {
@@ -229,6 +233,10 @@ const CustomerRechargePage = () => {
       setStep('success');
       loadInitialData();
     } catch (err) {
+      if (err?.response?.data?.code === 'MPIN_NOT_SET') {
+        setShowSetMpinModal(true);
+        return;
+      }
       const msg = err?.response?.data?.message || 'Recharge authorization failed. Please try again.';
       if (err?.response?.status === 401 || err?.response?.data?.code === 'INVALID_PIN') {
         setPinError(msg);
@@ -959,6 +967,16 @@ const CustomerRechargePage = () => {
           </div>
         </div>
       )}
+      <MpinModal
+        open={showSetMpinModal}
+        initialMode="set"
+        onClose={() => setShowSetMpinModal(false)}
+        onSuccess={(newPin) => {
+          setShowSetMpinModal(false);
+          setRechargePin(newPin);
+          setPinError('');
+        }}
+      />
     </div>
   );
 };

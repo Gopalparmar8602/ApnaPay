@@ -22,6 +22,8 @@ import {
 } from '../../components/Icons';
 import walletService from '../../services/walletService';
 import bankAccountService from '../../services/bankAccountService';
+import mpinService from '../../services/mpinService';
+import MpinModal from '../../components/MpinModal';
 import { CopyIcon } from '../../components/Icons';
 import { POPULAR_INDIAN_BANKS, ALL_INDIAN_BANKS } from '../../data/indianBanks';
 
@@ -100,6 +102,7 @@ const CustomerWalletPage = () => {
   const [paymentMethod, setPaymentMethod] = useState('UPI');
   const [addSourceDetail, setAddSourceDetail] = useState('');
   const [isAddingMoney, setIsAddingMoney] = useState(false);
+  const [addPin, setAddPin] = useState('');
   const [addError, setAddError] = useState('');
   const [addReceipt, setAddReceipt] = useState(null);
 
@@ -135,6 +138,25 @@ const CustomerWalletPage = () => {
   const [qrRequestAmount, setQrRequestAmount] = useState('');
   const [qrCopied, setQrCopied] = useState(false);
 
+  // Centralized 4-Digit MPIN state
+  const [mpinSet, setMpinSet] = useState(false);
+  const [mpinLockSeconds, setMpinLockSeconds] = useState(0);
+  const [mpinModal, setMpinModal] = useState({ open: false, mode: 'verify', action: null, summaryRows: [], actionLabel: '' });
+
+  useEffect(() => {
+    if (mpinLockSeconds <= 0) return;
+    const t = setInterval(() => {
+      setMpinLockSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [mpinLockSeconds]);
+
+  const formatLockCountdown = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
   // State: Ledger Entry Receipt Modal
   const [selectedLedgerEntry, setSelectedLedgerEntry] = useState(null);
 
@@ -148,12 +170,17 @@ const CustomerWalletPage = () => {
   const loadWalletMeta = async () => {
     setLoadingOverview(true);
     try {
-      const [ovRes, limRes, sumRes, banksRes] = await Promise.all([
+      const [ovRes, limRes, sumRes, banksRes, mpinRes] = await Promise.all([
         walletService.getOverview().catch((err) => ({ error: err.response?.data?.message || 'Could not load overview' })),
         walletService.getLimits().catch(() => ({ data: null })),
         walletService.getSummary(summaryPeriod).catch(() => ({ data: null })),
-        bankAccountService.getLinkedAccounts().catch(() => ({ data: [] }))
+        bankAccountService.getLinkedAccounts().catch(() => ({ data: [] })),
+        mpinService.getStatus().catch(() => ({ data: { mpinSet: false } }))
       ]);
+      if (mpinRes?.data) {
+        setMpinSet(Boolean(mpinRes.data.mpinSet));
+        setMpinLockSeconds(mpinRes.data.isLocked ? Number(mpinRes.data.remainingSeconds || 0) : 0);
+      }
 
       if (ovRes?.error) {
         setFeedback({ type: 'error', text: ovRes.error });
@@ -238,6 +265,7 @@ const CustomerWalletPage = () => {
 
   const openAddMoneyModal = () => {
     setAddError('');
+    setAddPin('');
     setAddReceipt(null);
     setAddStep('form');
     setAddSourceDetail('');
@@ -305,19 +333,22 @@ const CustomerWalletPage = () => {
       return;
     }
     setAddError('');
+    setAddPin('');
     setAddStep('confirm');
   };
 
-  const handleAddMoneyConfirm = async () => {
+  const executeAddMoney = async (pinToUse) => {
     const amt = parseFloat(addAmount);
     setAddError('');
     setIsAddingMoney(true);
 
     try {
       const res = await walletService.addMoney(amt, paymentMethod, {
-        sourceLabel: addSourceDetail.trim() || undefined
+        sourceLabel: addSourceDetail.trim() || undefined,
+        mpin: pinToUse
       });
       if (res?.success) {
+        setAddPin('');
         setAddReceipt(res.data || {
           addedAmount: amt,
           paymentMethod,
@@ -333,14 +364,48 @@ const CustomerWalletPage = () => {
         handleRefreshAll();
       } else {
         setAddError(res?.message || 'Failed to add money.');
-        setAddStep('form');
       }
     } catch (err) {
-      setAddError(err.response?.data?.message || 'Transaction could not be processed.');
-      setAddStep('form');
+      if (err.response?.data?.code === 'MPIN_NOT_SET') {
+        setMpinSet(false);
+        setMpinModal({
+          open: true,
+          mode: 'set',
+          action: 'addMoney',
+          summaryRows: [{ label: 'Top-up Amount', value: formatINR(amt), highlight: true }],
+          actionLabel: `Set MPIN & Pay ${formatINR(amt)}`
+        });
+      } else {
+        const resp = err.response?.data;
+        if (err.response?.status === 423 || resp?.code === 'MPIN_LOCKED' || resp?.isLocked) {
+          setMpinLockSeconds(Number(resp?.remainingSeconds || 900));
+        }
+        setAddPin('');
+        setAddError(resp?.message || 'MPIN verification or transaction failed.');
+      }
     } finally {
       setIsAddingMoney(false);
     }
+  };
+
+  const handleAddMoneyConfirm = async () => {
+    if (!mpinSet) {
+      setMpinModal({
+        open: true,
+        mode: 'set',
+        action: 'addMoney',
+        summaryRows: [{ label: 'Top-up Amount', value: formatINR(addAmount), highlight: true }],
+        actionLabel: `Set MPIN & Pay ${formatINR(addAmount)}`
+      });
+      return;
+    }
+
+    if (!/^\d{4}$/.test(addPin)) {
+      setAddError('Please enter your 4-digit Payment MPIN.');
+      return;
+    }
+
+    await executeAddMoney(addPin);
   };
 
   // 4. Handle Withdraw Money (Form -> Confirm -> Connecting -> Receipt)
@@ -361,7 +426,7 @@ const CustomerWalletPage = () => {
     setWithdrawStep('confirm');
   };
 
-  const handleWithdrawConfirm = async () => {
+  const executeWithdraw = async (pinToUse) => {
     const amt = parseFloat(withdrawAmount);
     setWithdrawError('');
     setIsWithdrawing(true);
@@ -374,7 +439,8 @@ const CustomerWalletPage = () => {
         walletService.withdraw(amt, withdrawBank, {
           bankAccountId: selectedAcc ? selectedAcc.id : undefined,
           ifscCode: selectedAcc?.ifscCode || selectedAcc?.ifsc_code || undefined,
-          transferMode
+          transferMode,
+          mpin: pinToUse
         }),
         new Promise((r) => setTimeout(r, 700))
       ]);
@@ -396,14 +462,27 @@ const CustomerWalletPage = () => {
         handleRefreshAll();
       } else {
         setWithdrawError(res?.message || 'Failed to process withdrawal.');
-        setWithdrawStep('form');
+        setWithdrawStep('confirm');
       }
     } catch (err) {
-      setWithdrawError(err.response?.data?.message || 'Withdrawal could not be completed.');
-      setWithdrawStep('form');
+      setWithdrawStep('confirm');
+      throw err;
     } finally {
       setIsWithdrawing(false);
     }
+  };
+
+  const handleWithdrawConfirm = () => {
+    setMpinModal({
+      open: true,
+      mode: mpinSet ? 'verify' : 'set',
+      action: 'withdraw',
+      summaryRows: [
+        { label: 'Withdraw Amount', value: formatINR(withdrawAmount), highlight: true },
+        { label: 'Bank Account', value: withdrawBank }
+      ],
+      actionLabel: `Verify MPIN & Withdraw ${formatINR(withdrawAmount)}`
+    });
   };
 
   // 5. Handle Wallet-to-Wallet Transfer
@@ -438,7 +517,7 @@ const CustomerWalletPage = () => {
     setTransferStep('confirm');
   };
 
-  const handleTransferConfirm = async () => {
+  const executeTransfer = async (pinToUse) => {
     const amt = parseFloat(transferAmount);
     setTransferError('');
     setIsTransferring(true);
@@ -450,7 +529,8 @@ const CustomerWalletPage = () => {
         walletService.transfer({
           recipient: transferRecipient.trim(),
           amount: amt,
-          note: transferNote.trim()
+          note: transferNote.trim(),
+          mpin: pinToUse
         }),
         new Promise((r) => setTimeout(r, 700))
       ]);
@@ -466,19 +546,32 @@ const CustomerWalletPage = () => {
         setTransferStep('receipt');
         setFeedback({
           type: 'success',
-          text: res.message || `₹${amt.toLocaleString('en-IN')} transferred from wallet!`
+          text: res.message || `₹${amt.toLocaleString('en-IN')} transferred successfully!`
         });
         handleRefreshAll();
       } else {
-        setTransferError(res?.message || 'Wallet transfer failed.');
-        setTransferStep('form');
+        setTransferError(res?.message || 'Transfer failed.');
+        setTransferStep('confirm');
       }
     } catch (err) {
-      setTransferError(err.response?.data?.message || 'Wallet transfer could not be completed.');
-      setTransferStep('form');
+      setTransferStep('confirm');
+      throw err;
     } finally {
       setIsTransferring(false);
     }
+  };
+
+  const handleTransferConfirm = () => {
+    setMpinModal({
+      open: true,
+      mode: mpinSet ? 'verify' : 'set',
+      action: 'transfer',
+      summaryRows: [
+        { label: 'Transfer Amount', value: formatINR(transferAmount), highlight: true },
+        { label: 'Recipient', value: transferRecipient.trim() }
+      ],
+      actionLabel: `Verify MPIN & Transfer ${formatINR(transferAmount)}`
+    });
   };
 
   // Safe data readings
@@ -1365,8 +1458,66 @@ const CustomerWalletPage = () => {
                   </div>
                 </div>
 
+                {mpinSet ? (
+                  <div style={{ marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '700', color: '#CFDFEE' }}>
+                        Enter 4-Digit Payment MPIN *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMpinModal({
+                            open: true,
+                            mode: 'forgot',
+                            action: null,
+                            summaryRows: [],
+                            actionLabel: ''
+                          })
+                        }
+                        style={{ background: 'none', border: 'none', color: '#00D5FF', fontSize: '11.5px', fontWeight: '700', cursor: 'pointer', padding: 0 }}
+                      >
+                        Forgot MPIN?
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      name="apna_mpin_code"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
+                      maxLength={4}
+                      value={addPin}
+                      onChange={(e) => setAddPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      placeholder="••••"
+                      className="auth-input"
+                      style={{
+                        textAlign: 'center',
+                        fontSize: '18px',
+                        letterSpacing: '0.35em',
+                        fontWeight: '800',
+                        height: '44px',
+                        WebkitTextSecurity: 'disc'
+                      }}
+                      autoFocus
+                    />
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: '14px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(0, 213, 255, 0.08)', border: '1px solid rgba(0, 213, 255, 0.25)', fontSize: '12px', color: '#A9BDD7' }}>
+                    First-time setup: Set your common 4-digit ApnaPay Payment MPIN to authorize this top-up and future payments.
+                  </div>
+                )}
+
+                {mpinLockSeconds > 0 && (
+                  <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)', borderRadius: '10px', padding: '10px 12px', marginBottom: '12px', textAlign: 'center', fontSize: '12px', color: '#FCA5A5', fontWeight: '700' }}>
+                    Payment Authorization Locked • Retry in {formatLockCountdown(mpinLockSeconds)}
+                  </div>
+                )}
+
                 {addError && (
-                  <div style={{ color: '#EF4444', fontSize: '12px', marginBottom: '14px', textAlign: 'center' }}>
+                  <div style={{ color: '#EF4444', fontSize: '12px', marginBottom: '14px', textAlign: 'center', fontWeight: '600' }}>
                     {addError}
                   </div>
                 )}
@@ -1384,18 +1535,26 @@ const CustomerWalletPage = () => {
                   <button
                     type="button"
                     onClick={handleAddMoneyConfirm}
-                    disabled={isAddingMoney}
+                    disabled={isAddingMoney || mpinLockSeconds > 0}
                     className="auth-button primary"
                     style={{
                       flex: 2,
                       height: '44px',
                       margin: 0,
                       fontWeight: '800',
-                      background: 'linear-gradient(135deg, #00D5FF 0%, #0077FF 100%)',
-                      color: '#050D1B'
+                      background: mpinLockSeconds > 0 ? '#1E293B' : 'linear-gradient(135deg, #00D5FF 0%, #0077FF 100%)',
+                      color: mpinLockSeconds > 0 ? '#64748B' : '#050D1B'
                     }}
                   >
-                    {isAddingMoney ? <RefreshCwIcon size={18} className="animate-spin" /> : `Authorize & Pay ${formatINR(addAmount)}`}
+                    {isAddingMoney ? (
+                      <RefreshCwIcon size={18} className="animate-spin" />
+                    ) : mpinLockSeconds > 0 ? (
+                      `Locked (${formatLockCountdown(mpinLockSeconds)})`
+                    ) : mpinSet ? (
+                      `Authorize & Pay ${formatINR(addAmount)}`
+                    ) : (
+                      `Set MPIN & Pay ${formatINR(addAmount)}`
+                    )}
                   </button>
                 </div>
               </div>
@@ -2701,6 +2860,29 @@ const CustomerWalletPage = () => {
         </>,
         document.body
       )}
+      <MpinModal
+        open={mpinModal.open}
+        initialMode={mpinModal.mode}
+        summaryRows={mpinModal.summaryRows}
+        actionLabel={mpinModal.actionLabel}
+        onClose={() => setMpinModal((p) => ({ ...p, open: false }))}
+        onSuccess={async (enteredPin) => {
+          setMpinSet(true);
+          const action = mpinModal.action;
+          if (action === 'addMoney') {
+            setMpinModal((p) => ({ ...p, open: false }));
+            await executeAddMoney(enteredPin);
+          } else if (action === 'withdraw') {
+            await executeWithdraw(enteredPin);
+            setMpinModal((p) => ({ ...p, open: false }));
+          } else if (action === 'transfer') {
+            await executeTransfer(enteredPin);
+            setMpinModal((p) => ({ ...p, open: false }));
+          } else {
+            setMpinModal((p) => ({ ...p, open: false }));
+          }
+        }}
+      />
     </DashboardLayout>
   );
 };

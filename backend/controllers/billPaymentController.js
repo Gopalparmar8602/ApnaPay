@@ -3,6 +3,7 @@ const billerService = require('../services/billPayment/billerService');
 const billFetchService = require('../services/billPayment/billFetchService');
 const billValidationService = require('../services/billPayment/billValidationService');
 const billPaymentService = require('../services/billPayment/billPaymentService');
+const { verifyUserMpin } = require('../services/mpinService');
 const billFavoriteService = require('../services/billPayment/billFavoriteService');
 
 class BillPaymentController {
@@ -194,8 +195,21 @@ class BillPaymentController {
         fetchReferenceId,
         amount,
         paymentMode = 'DEMO',
-        idempotencyKey
+        idempotencyKey,
+        mpin
       } = req.body;
+
+      if (mpin !== undefined || String(paymentMode).toUpperCase() === 'WALLET') {
+        const mpinCheck = await verifyUserMpin(userId, mpin);
+        if (!mpinCheck.ok) {
+          return res.status(mpinCheck.status).json({
+            success: false,
+            code: mpinCheck.code,
+            message: mpinCheck.message,
+            data: null
+          });
+        }
+      }
 
       if (!fetchReferenceId) {
         return res.status(400).json({

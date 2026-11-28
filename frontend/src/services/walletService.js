@@ -62,11 +62,12 @@ const walletService = {
   },
 
   // 8. POST /api/wallet/transfer - Wallet-to-wallet transfer
-  transfer: async ({ recipient, amount, note = '' }) => {
+  transfer: async ({ recipient, amount, note = '', mpin }) => {
     const response = await api.post('/wallet/transfer', {
       recipient,
       amount,
-      note
+      note,
+      mpin
     });
     return response.data;
   },

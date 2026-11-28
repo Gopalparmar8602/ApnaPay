@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import DashboardLayout from '../../components/layout/DashboardLayout';
+import PromoCarousel from '../../components/PromoCarousel';
 import {
   ShieldIcon,
   UserIcon,
@@ -633,104 +634,12 @@ const CustomerDashboardOverview = () => {
       )}
 
       {/* ========================================================= */}
-      {/* 1. TOP PROMOTIONAL BANNER                                 */}
+      {/* 1. FEATURED PROMOTIONAL CTA CAROUSEL                      */}
       {/* ========================================================= */}
-      <div
-        style={{
-          background: 'linear-gradient(135deg, #071426 0%, #0C2442 60%, #071426 100%)',
-          border: '1px solid #17385D',
-          borderRadius: '16px',
-          padding: '14px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '12px',
-          position: 'relative',
-          overflow: 'hidden',
-          boxShadow: '0 6px 20px rgba(0, 0, 0, 0.35)'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', zIndex: 1 }}>
-          <div
-            style={{
-              width: '42px',
-              height: '42px',
-              borderRadius: '12px',
-              background: 'linear-gradient(135deg, #087BFF 0%, #00D5FF 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#FFFFFF',
-              boxShadow: '0 4px 14px rgba(0, 168, 255, 0.4)',
-              flexShrink: 0
-            }}
-          >
-            <QrCodeIcon size={22} />
-          </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '14.5px', fontWeight: '800', color: '#FFFFFF' }}>
-                Save on QR Payments with ApnaPay UPI
-              </span>
-              <span
-                style={{
-                  fontSize: '10.5px',
-                  fontWeight: '800',
-                  color: '#00E599',
-                  background: 'rgba(0, 229, 153, 0.15)',
-                  border: '1px solid rgba(0, 229, 153, 0.35)',
-                  padding: '2px 8px',
-                  borderRadius: '10px'
-                }}
-              >
-                Zero Gateway Fees
-              </span>
-            </div>
-            <p style={{ fontSize: '12px', color: '#A9BDD7', margin: '2px 0 0' }}>
-              Instant Bharat UPI scan, verified bank settlements & 100% audited double-entry ledger.
-            </p>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', zIndex: 1 }}>
-          <button
-            onClick={() => setScanPayModalOpen(true)}
-            className="auth-button"
-            style={{
-              width: 'auto',
-              height: '36px',
-              padding: '0 18px',
-              fontSize: '12.5px',
-              margin: 0,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-            title="Scan any QR code"
-          >
-            <QrCodeIcon size={15} />
-            <span>Scan Any QR</span>
-          </button>
-          <button
-            onClick={() => setQrModalOpen(true)}
-            className="auth-button secondary"
-            style={{
-              width: 'auto',
-              height: '36px',
-              padding: '0 16px',
-              fontSize: '12.5px',
-              margin: 0,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-            title="Open personal QR code"
-          >
-            <span>My QR</span>
-          </button>
-        </div>
-      </div>
+      <PromoCarousel
+        onNavigate={(path) => navigate(path)}
+        onOpenScanQr={() => setScanPayModalOpen(true)}
+      />
 
       {/* ========================================================= */}
       {/* 2. PRIORITY 1: MONEY TRANSFERS (Payment App Core)         */}

@@ -18,6 +18,7 @@ const adminKycRoutes = require('./routes/adminKycRoutes');
 const bankAccountRoutes = require('./routes/bankAccountRoutes');
 const upiRoutes = require('./routes/upiRoutes');
 const walletRoutes = require('./routes/walletRoutes');
+const mpinRoutes = require('./routes/mpinRoutes');
 
 // Payments, Transfers & QR
 const paymentRoutes = require('./routes/paymentRoutes');
@@ -96,6 +97,7 @@ app.use(['/api/v1/upi', '/api/upi', '/upi'], upiRoutes);
 
 // Wallet and Ledger Routes - mounted at /api/wallet, /api/v1/wallet and /wallet
 app.use(['/api/wallet', '/api/v1/wallet', '/wallet'], walletRoutes);
+app.use(['/mpin', '/api/mpin', '/api/v1/mpin'], mpinRoutes);
 
 // Payments, Transfers & QR
 app.use(['/payment', '/api/payment', '/api/v1/payment'], paymentRoutes);

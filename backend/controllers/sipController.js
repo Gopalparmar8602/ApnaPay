@@ -1,5 +1,8 @@
 
 const db = require("../config/db");
+const { verifyUserMpin } = require("../services/mpinService");
+const mfProvider = require("../services/mfProviderService");
+const NotificationService = require("../services/notificationService");
 
 // =====================================
 // HELPER FUNCTIONS
@@ -63,6 +66,9 @@ function getDueDate(startDate, frequency, index) {
         case "quarterly":
             return addMonths(date, index * 3);
 
+        case "yearly":
+            return addMonths(date, index * 12);
+
         default:
             throw new Error("Invalid SIP frequency");
     }
@@ -122,7 +128,12 @@ async function ensureSipSchema() {
             ["badge_text", "VARCHAR(80) NULL"],
             ["is_in_focus", "TINYINT(1) NOT NULL DEFAULT 0"],
             ["is_new_fund", "TINYINT(1) NOT NULL DEFAULT 0"],
-            ["amc_code", "VARCHAR(16) NULL"]
+            ["amc_code", "VARCHAR(16) NULL"],
+            ["nav", "DECIMAL(12,4) NULL"],
+            ["nav_date", "DATE NULL"],
+            ["expense_ratio", "DECIMAL(5,2) NULL"],
+            ["plan_option", "VARCHAR(60) NULL"],
+            ["supported_frequencies", "VARCHAR(80) NULL"]
         ];
         try {
             const [pCols] = await db.execute("DESCRIBE sip_products");
@@ -132,7 +143,7 @@ async function ensureSipSchema() {
                     await db.execute(`ALTER TABLE sip_products ADD COLUMN ${colName} ${colDef}`);
                 }
             }
-        } catch (_) {}
+        } catch (_) { }
 
         // Ensure default + rich mutual fund catalog exists
         const catalogFunds = [
@@ -182,15 +193,118 @@ async function ensureSipSchema() {
             );
         }
 
-        // Ensure User Investment Accounts (PAN / KYC for Mutual Funds) table exists
+        // Ensure User Investment Accounts (PAN / KYC / FATCA / Nominee for Mutual Funds)
         await db.execute(`
             CREATE TABLE IF NOT EXISTS user_investment_accounts (
               id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
               user_id BIGINT UNSIGNED NOT NULL UNIQUE,
               pan_number VARCHAR(10) NOT NULL,
-              kyc_status VARCHAR(30) NOT NULL DEFAULT 'verified',
+              investor_name VARCHAR(150) NULL,
+              dob DATE NULL,
+              address VARCHAR(255) NULL,
+              bank_account_id BIGINT UNSIGNED NULL,
+              nominee_name VARCHAR(150) NULL,
+              nominee_relation VARCHAR(60) NULL,
+              fatca_declared TINYINT(1) NOT NULL DEFAULT 0,
+              consent_accepted TINYINT(1) NOT NULL DEFAULT 0,
+              kyc_status VARCHAR(30) NOT NULL DEFAULT 'NOT_STARTED',
               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
               updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Add extended KYC columns if table already existed
+        const kycColsToAdd = [
+            ["investor_name", "VARCHAR(150) NULL"],
+            ["dob", "DATE NULL"],
+            ["address", "VARCHAR(255) NULL"],
+            ["bank_account_id", "BIGINT UNSIGNED NULL"],
+            ["nominee_name", "VARCHAR(150) NULL"],
+            ["nominee_relation", "VARCHAR(60) NULL"],
+            ["fatca_declared", "TINYINT(1) NOT NULL DEFAULT 0"],
+            ["consent_accepted", "TINYINT(1) NOT NULL DEFAULT 0"]
+        ];
+        try {
+            const [kCols] = await db.execute("DESCRIBE user_investment_accounts");
+            const existingKCols = kCols.map((c) => c.Field);
+            for (const [colName, colDef] of kycColsToAdd) {
+                if (!existingKCols.includes(colName)) {
+                    await db.execute(`ALTER TABLE user_investment_accounts ADD COLUMN ${colName} ${colDef}`);
+                }
+            }
+        } catch (_) {}
+
+        // Populate sandbox NAV, expense_ratio, plan_option, supported_frequencies on sip_products
+        await db.execute(`
+            UPDATE sip_products
+            SET nav = COALESCE(nav, ROUND(35 + (id * 7.35), 4)),
+                nav_date = COALESCE(nav_date, CURDATE()),
+                expense_ratio = COALESCE(expense_ratio, IF(category = 'Debt', 0.35, 0.72)),
+                plan_option = COALESCE(plan_option, 'Direct - Growth'),
+                supported_frequencies = COALESCE(
+                    supported_frequencies,
+                    IF(category = 'Debt', 'monthly,lumpsum', 'weekly,monthly,yearly,lumpsum')
+                )
+            WHERE nav IS NULL OR supported_frequencies IS NULL
+        `);
+
+        // Extend investment_orders with full allotment & idempotency columns
+        const ioColsToAdd = [
+            ["order_reference", "VARCHAR(80) NULL"],
+            ["investment_type", "VARCHAR(30) NULL"],
+            ["installment_id", "BIGINT UNSIGNED NULL"],
+            ["mandate_reference", "VARCHAR(80) NULL"],
+            ["payment_method", "VARCHAR(40) NULL"],
+            ["payment_status", "VARCHAR(40) NULL"],
+            ["order_status", "VARCHAR(40) NULL"],
+            ["applicable_nav", "DECIMAL(12,4) NULL"],
+            ["allotted_units", "DECIMAL(14,4) NULL"],
+            ["allotment_date", "DATE NULL"],
+            ["failure_reason", "VARCHAR(255) NULL"],
+            ["idempotency_key", "VARCHAR(100) NULL UNIQUE"]
+        ];
+        try {
+            const [ioCols] = await db.execute("DESCRIBE investment_orders");
+            const existingIoCols = ioCols.map((c) => c.Field);
+            for (const [colName, colDef] of ioColsToAdd) {
+                if (!existingIoCols.includes(colName)) {
+                    await db.execute(`ALTER TABLE investment_orders ADD COLUMN ${colName} ${colDef}`);
+                }
+            }
+        } catch (_) {}
+
+        // Watchlist, Webhook Events & Audit Logs
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS mf_watchlist (
+              id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+              user_id BIGINT UNSIGNED NOT NULL,
+              product_id BIGINT UNSIGNED NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_user_fund (user_id, product_id)
+            )
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS mf_webhook_events (
+              id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+              event_id VARCHAR(100) NOT NULL UNIQUE,
+              event_type VARCHAR(60) NOT NULL,
+              provider_reference VARCHAR(100) NULL,
+              signature_valid TINYINT(1) NOT NULL DEFAULT 0,
+              payload JSON NULL,
+              processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS mf_audit_logs (
+              id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+              user_id BIGINT UNSIGNED NULL,
+              entity_type VARCHAR(50) NOT NULL,
+              entity_id VARCHAR(80) NULL,
+              action VARCHAR(60) NOT NULL,
+              details VARCHAR(255) NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
 
@@ -282,7 +396,7 @@ async function ensureSipSchema() {
 }
 
 // Initial async trigger on file load
-ensureSipSchema().catch(() => {});
+ensureSipSchema().catch(() => { });
 
 // 1. GET ALL ACTIVE SIP PRODUCTS
 // =====================================
@@ -308,6 +422,11 @@ exports.getProducts = async (req, res) => {
                 is_in_focus,
                 is_new_fund,
                 amc_code,
+                nav,
+                nav_date,
+                expense_ratio,
+                plan_option,
+                supported_frequencies,
                 status,
                 created_at
              FROM sip_products
@@ -317,6 +436,7 @@ exports.getProducts = async (req, res) => {
 
         return res.json({
             success: true,
+            provider: mfProvider.getIntegrationHealth(),
             count: products.length,
             data: products
         });
@@ -390,12 +510,15 @@ exports.getInvestmentAccount = async (req, res) => {
             return res.status(401).json({ success: false, message: "Unauthorized" });
         }
         const [rows] = await db.execute(
-            `SELECT user_id, pan_number, kyc_status, created_at FROM user_investment_accounts WHERE user_id = ? LIMIT 1`,
+            `SELECT user_id, pan_number, investor_name, dob, address, bank_account_id,
+                    nominee_name, nominee_relation, fatca_declared, consent_accepted,
+                    kyc_status, created_at, updated_at
+             FROM user_investment_accounts WHERE user_id = ? LIMIT 1`,
             [userId]
         );
         return res.json({
             success: true,
-            data: rows.length ? rows[0] : null
+            data: rows.length ? rows[0] : { kyc_status: "NOT_STARTED" }
         });
     } catch (error) {
         console.error("Get investment account:", error);
@@ -418,17 +541,70 @@ exports.setupInvestmentAccount = async (req, res) => {
             });
         }
 
+        const investorName = String(req.body?.investor_name || "").trim() || null;
+        const dob = req.body?.dob || null;
+        const address = String(req.body?.address || "").trim() || null;
+        const bankAccountId = req.body?.bank_account_id ? Number(req.body.bank_account_id) : null;
+        const nomineeName = String(req.body?.nominee_name || "").trim() || null;
+        const nomineeRelation = String(req.body?.nominee_relation || "").trim() || null;
+        const fatcaDeclared = req.body?.fatca_declared !== undefined ? Boolean(req.body.fatca_declared) : true;
+        const consentAccepted = req.body?.consent_accepted !== undefined ? Boolean(req.body.consent_accepted) : true;
+        const kycStatus = fatcaDeclared && consentAccepted ? "VERIFIED" : "IN_PROGRESS";
+
         await db.execute(
-            `INSERT INTO user_investment_accounts (user_id, pan_number, kyc_status)
-             VALUES (?, ?, 'verified')
-             ON DUPLICATE KEY UPDATE pan_number = VALUES(pan_number), kyc_status = 'verified'`,
-            [userId, rawPan]
+            `INSERT INTO user_investment_accounts (
+                user_id, pan_number, investor_name, dob, address, bank_account_id,
+                nominee_name, nominee_relation, fatca_declared, consent_accepted, kyc_status
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                pan_number = VALUES(pan_number),
+                investor_name = COALESCE(VALUES(investor_name), investor_name),
+                dob = COALESCE(VALUES(dob), dob),
+                address = COALESCE(VALUES(address), address),
+                bank_account_id = COALESCE(VALUES(bank_account_id), bank_account_id),
+                nominee_name = COALESCE(VALUES(nominee_name), nominee_name),
+                nominee_relation = COALESCE(VALUES(nominee_relation), nominee_relation),
+                fatca_declared = VALUES(fatca_declared),
+                consent_accepted = VALUES(consent_accepted),
+                kyc_status = VALUES(kyc_status)`,
+            [
+                userId, rawPan, investorName, dob, address, bankAccountId,
+                nomineeName, nomineeRelation, fatcaDeclared ? 1 : 0, consentAccepted ? 1 : 0, kycStatus
+            ]
         );
+
+        await db.execute(
+            `INSERT INTO mf_audit_logs (user_id, entity_type, entity_id, action, details)
+             VALUES (?, 'kyc', ?, 'KYC_UPDATED', ?)`,
+            [userId, String(userId), `MF KYC status set to ${kycStatus}`]
+        ).catch(() => {});
+
+        if (kycStatus === "VERIFIED") {
+            NotificationService.notify({
+                userId,
+                title: "Mutual Fund KYC Verified",
+                message: "Your PAN & Mutual Fund investor onboarding is verified (Sandbox Mode).",
+                category: "wealth",
+                type: "success"
+            }).catch(() => {});
+        }
 
         return res.status(201).json({
             success: true,
-            message: "Investment account verified and activated",
-            data: { user_id: userId, pan_number: rawPan, kyc_status: "verified" }
+            message: kycStatus === "VERIFIED" ? "Investor KYC verified and activated" : "Investor onboarding saved",
+            data: {
+                user_id: userId,
+                pan_number: rawPan,
+                investor_name: investorName,
+                dob,
+                address,
+                bank_account_id: bankAccountId,
+                nominee_name: nomineeName,
+                nominee_relation: nomineeRelation,
+                fatca_declared: fatcaDeclared,
+                consent_accepted: consentAccepted,
+                kyc_status: kycStatus
+            }
         });
     } catch (error) {
         console.error("Setup investment account:", error);
@@ -467,7 +643,8 @@ exports.createSIP = async (req, res) => {
             "daily",
             "weekly",
             "monthly",
-            "quarterly"
+            "quarterly",
+            "yearly"
         ];
 
         if (
@@ -550,9 +727,9 @@ exports.createSIP = async (req, res) => {
             });
         }
 
-        // Check SIP product
+        // Check SIP product & supported frequencies
         const [products] = await connection.execute(
-            `SELECT id, minimum_investment
+            `SELECT id, product_name, minimum_investment, nav, supported_frequencies
              FROM sip_products
              WHERE id = ? AND status = 'active'`,
             [productId]
@@ -567,6 +744,34 @@ exports.createSIP = async (req, res) => {
             });
         }
 
+        const supportedFreqs = String(products[0].supported_frequencies || "monthly,lumpsum")
+            .split(",")
+            .map((s) => s.trim().toLowerCase());
+        if (!["daily", "quarterly"].includes(frequency) && !supportedFreqs.includes(frequency)) {
+            await connection.rollback();
+            return res.status(400).json({
+                success: false,
+                code: "UNSUPPORTED_FREQUENCY",
+                message: `${products[0].product_name} does not support ${frequency} SIP. Supported: ${supportedFreqs.join(", ")}`
+            });
+        }
+
+        // Enforce Mutual Fund KYC verification when starting a provider/sandbox SIP
+        const [kycAcc] = await connection.execute(
+            `SELECT kyc_status FROM user_investment_accounts WHERE user_id = ? LIMIT 1`,
+            [userId]
+        );
+        const kycSt = String(kycAcc[0]?.kyc_status || "NOT_STARTED").toUpperCase();
+        if (kycSt !== "VERIFIED") {
+            await connection.rollback();
+            return res.status(403).json({
+                success: false,
+                code: "KYC_REQUIRED",
+                kycStatus: kycSt,
+                message: "Complete Mutual Fund PAN & KYC onboarding before creating an investment."
+            });
+        }
+
         if (amount < Number(products[0].minimum_investment)) {
             await connection.rollback();
 
@@ -576,8 +781,18 @@ exports.createSIP = async (req, res) => {
             });
         }
 
-        // If paying first installment from Wallet, verify & deduct balance atomically
+        // If paying first installment from Wallet, verify MPIN + deduct balance atomically
         if (payment_source === "wallet") {
+            const mpinCheck = await verifyUserMpin(userId, req.body.mpin, connection);
+            if (!mpinCheck.ok) {
+                await connection.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
+
             const [wRows] = await connection.execute(
                 `SELECT id, available_balance FROM wallets WHERE user_id = ? FOR UPDATE`,
                 [userId]
@@ -676,7 +891,49 @@ exports.createSIP = async (req, res) => {
             );
         }
 
+        // Create investment_orders & allotment record for first paid installment
+        if (payment_source) {
+            const sandboxOrder = mfProvider.submitSandboxOrder({
+                amount,
+                nav: products[0].nav,
+                isLumpsum: false
+            });
+            await connection.execute(
+                `INSERT INTO investment_orders (
+                    user_id, product_id, sip_plan_id, order_type, amount, provider_reference,
+                    order_reference, investment_type, payment_method, payment_status, order_status,
+                    applicable_nav, allotted_units, allotment_date, status
+                ) VALUES (?, ?, ?, 'sip', ?, ?, ?, 'sip', ?, 'PAYMENT_SUCCESS', 'ALLOTTED', ?, ?, ?, 'completed')`,
+                [
+                    userId,
+                    productId,
+                    planId,
+                    amount,
+                    sandboxOrder.providerOrderReference,
+                    firstTxnRef,
+                    payment_source,
+                    sandboxOrder.applicableNav,
+                    sandboxOrder.allottedUnits,
+                    sandboxOrder.allotmentDate
+                ]
+            );
+        }
+
+        await connection.execute(
+            `INSERT INTO mf_audit_logs (user_id, entity_type, entity_id, action, details)
+             VALUES (?, 'sip_plan', ?, 'SIP_CREATED', ?)`,
+            [userId, String(planId), `${frequency} SIP of ₹${amount} in ${products[0].product_name}`]
+        ).catch(() => {});
+
         await connection.commit();
+
+        NotificationService.notify({
+            userId,
+            title: "Demo SIP Registered",
+            message: `${frequency.toUpperCase()} SIP of ₹${amount} started in ${products[0].product_name} (Sandbox).`,
+            category: "wealth",
+            type: "success"
+        }).catch(() => {});
 
         return res.status(201).json({
             success: true,
@@ -1030,7 +1287,49 @@ exports.cancelSIP = async (req, res) => {
             [id]
         );
 
+        // Create investment_orders & allotment record for first paid installment
+        if (payment_source) {
+            const sandboxOrder = mfProvider.submitSandboxOrder({
+                amount,
+                nav: products[0].nav,
+                isLumpsum: false
+            });
+            await connection.execute(
+                `INSERT INTO investment_orders (
+                    user_id, product_id, sip_plan_id, order_type, amount, provider_reference,
+                    order_reference, investment_type, payment_method, payment_status, order_status,
+                    applicable_nav, allotted_units, allotment_date, status
+                ) VALUES (?, ?, ?, 'sip', ?, ?, ?, 'sip', ?, 'PAYMENT_SUCCESS', 'ALLOTTED', ?, ?, ?, 'completed')`,
+                [
+                    userId,
+                    productId,
+                    planId,
+                    amount,
+                    sandboxOrder.providerOrderReference,
+                    firstTxnRef,
+                    payment_source,
+                    sandboxOrder.applicableNav,
+                    sandboxOrder.allottedUnits,
+                    sandboxOrder.allotmentDate
+                ]
+            );
+        }
+
+        await connection.execute(
+            `INSERT INTO mf_audit_logs (user_id, entity_type, entity_id, action, details)
+             VALUES (?, 'sip_plan', ?, 'SIP_CREATED', ?)`,
+            [userId, String(planId), `${frequency} SIP of ₹${amount} in ${products[0].product_name}`]
+        ).catch(() => {});
+
         await connection.commit();
+
+        NotificationService.notify({
+            userId,
+            title: "Demo SIP Registered",
+            message: `${frequency.toUpperCase()} SIP of ₹${amount} started in ${products[0].product_name} (Sandbox).`,
+            category: "wealth",
+            type: "success"
+        }).catch(() => {});
 
         return res.status(201).json({
             success: true,
@@ -1236,17 +1535,20 @@ exports.createOneTimeInvestment = async (req, res) => {
     let connection;
 
     try {
+        await ensureSipSchema();
         const {
             user_id,
             product_id,
-            amount
+            amount,
+            payment_source = "upi",
+            idempotency_key,
+            mpin
         } = req.body;
 
         const userId = Number(req.user?.userId || req.user?.id || user_id);
         const productId = Number(product_id);
         const investmentAmount = Number(amount);
 
-        // Validation
         if (
             !Number.isSafeInteger(userId) || userId <= 0 ||
             !Number.isSafeInteger(productId) || productId <= 0 ||
@@ -1262,24 +1564,39 @@ exports.createOneTimeInvestment = async (req, res) => {
         connection = await db.getConnection();
         await connection.beginTransaction();
 
-        // Check user
-        const [users] = await connection.execute(
-            "SELECT id FROM users WHERE id = ?",
+        if (idempotency_key) {
+            const [existingOrder] = await connection.execute(
+                `SELECT * FROM investment_orders WHERE idempotency_key = ? LIMIT 1`,
+                [String(idempotency_key)]
+            );
+            if (existingOrder.length) {
+                await connection.rollback();
+                return res.status(200).json({
+                    success: true,
+                    idempotent: true,
+                    message: "Duplicate request prevented; returning existing order.",
+                    data: existingOrder[0]
+                });
+            }
+        }
+
+        const [kycAcc] = await connection.execute(
+            `SELECT kyc_status FROM user_investment_accounts WHERE user_id = ? LIMIT 1`,
             [userId]
         );
-
-        if (!users.length) {
+        const kycSt = String(kycAcc[0]?.kyc_status || "NOT_STARTED").toUpperCase();
+        if (kycSt !== "VERIFIED") {
             await connection.rollback();
-
-            return res.status(404).json({
+            return res.status(403).json({
                 success: false,
-                message: "User not found"
+                code: "KYC_REQUIRED",
+                kycStatus: kycSt,
+                message: "Complete Mutual Fund PAN & KYC onboarding before making a one-time investment."
             });
         }
 
-        // Check product
         const [products] = await connection.execute(
-            `SELECT id, product_name, minimum_investment
+            `SELECT id, product_name, minimum_investment, nav
              FROM sip_products
              WHERE id = ? AND status = 'active'`,
             [productId]
@@ -1287,64 +1604,107 @@ exports.createOneTimeInvestment = async (req, res) => {
 
         if (!products.length) {
             await connection.rollback();
-
             return res.status(404).json({
                 success: false,
                 message: "Investment product not found or inactive"
             });
         }
 
-        // Minimum investment validation
-        if (
-            investmentAmount <
-            Number(products[0].minimum_investment)
-        ) {
+        if (investmentAmount < Number(products[0].minimum_investment)) {
             await connection.rollback();
-
             return res.status(400).json({
                 success: false,
                 message: `Minimum investment is ${products[0].minimum_investment}`
             });
         }
 
-        // Generate order reference
-        const orderReference = makeReference("INV");
+        if (payment_source === "wallet" || mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(userId, mpin);
+            if (!mpinCheck.ok) {
+                await connection.rollback();
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    isLocked: Boolean(mpinCheck.isLocked),
+                    lockedUntil: mpinCheck.lockedUntil || null,
+                    remainingSeconds: mpinCheck.remainingSeconds || 0,
+                    remainingAttempts: mpinCheck.remainingAttempts,
+                    message: mpinCheck.message
+                });
+            }
+        }
 
-        // Create investment order
+        if (payment_source === "wallet") {
+            const [wRows] = await connection.execute(`SELECT id, available_balance FROM wallets WHERE user_id = ? FOR UPDATE`, [userId]);
+            if (!wRows.length || Number(wRows[0].available_balance) < investmentAmount) {
+                await connection.rollback();
+                return res.status(400).json({ success: false, message: "Insufficient wallet balance." });
+            }
+            await connection.execute(`UPDATE wallets SET available_balance = available_balance - ? WHERE id = ?`, [investmentAmount, wRows[0].id]);
+        }
+
+        const orderReference = makeReference("LMP");
+        const sandboxOrder = mfProvider.submitSandboxOrder({
+            amount: investmentAmount,
+            nav: products[0].nav,
+            isLumpsum: true
+        });
+
         const [result] = await connection.execute(
             `INSERT INTO investment_orders (
-                order_reference,
-                user_id,
-                product_id,
-                investment_type,
-                amount,
-                payment_status,
-                order_status
+                user_id, product_id, order_type, amount, provider_reference,
+                order_reference, investment_type, payment_method, payment_status,
+                order_status, applicable_nav, allotted_units, allotment_date,
+                status, idempotency_key
             )
-            VALUES (?, ?, ?, 'one_time', ?, 'pending', 'pending_payment')`,
+            VALUES (?, ?, 'lumpsum', ?, ?, ?, 'one_time', ?, 'PAYMENT_SUCCESS', 'ALLOTTED', ?, ?, ?, 'completed', ?)`,
             [
-                orderReference,
                 userId,
                 productId,
-                investmentAmount
+                investmentAmount,
+                sandboxOrder.providerOrderReference,
+                orderReference,
+                payment_source,
+                sandboxOrder.applicableNav,
+                sandboxOrder.allottedUnits,
+                sandboxOrder.allotmentDate,
+                idempotency_key ? String(idempotency_key) : null
             ]
         );
 
+        await connection.execute(
+            `INSERT INTO mf_audit_logs (user_id, entity_type, entity_id, action, details)
+             VALUES (?, 'lumpsum', ?, 'ONE_TIME_ALLOTTED', ?)`,
+            [userId, String(result.insertId), `One-time ₹${investmentAmount} in ${products[0].product_name}`]
+        ).catch(() => {});
+
         await connection.commit();
+
+        NotificationService.notify({
+            userId,
+            title: "One-Time Investment Allotted (Demo)",
+            message: `${sandboxOrder.allottedUnits} units allotted in ${products[0].product_name} @ NAV ₹${sandboxOrder.applicableNav}.`,
+            category: "wealth",
+            type: "success"
+        }).catch(() => {});
 
         return res.status(201).json({
             success: true,
-            message: "One-time investment order created. Payment is pending.",
+            message: "One-time lumpsum investment allotted (Sandbox Mode).",
             data: {
                 investment_order_id: result.insertId,
                 order_reference: orderReference,
+                provider_reference: sandboxOrder.providerOrderReference,
                 user_id: userId,
                 product_id: productId,
                 product_name: products[0].product_name,
                 investment_type: "one_time",
                 amount: investmentAmount,
-                payment_status: "pending",
-                order_status: "pending_payment"
+                applicable_nav: sandboxOrder.applicableNav,
+                allotted_units: sandboxOrder.allottedUnits,
+                allotment_date: sandboxOrder.allotmentDate,
+                payment_status: "PAYMENT_SUCCESS",
+                order_status: "ALLOTTED"
             }
         });
 
@@ -1460,6 +1820,228 @@ exports.getInvestmentOrderDetails = async (req, res) => {
             success: false,
             message: "Unable to fetch investment details"
         });
+    }
+};
+
+// =====================================
+// 16. MODIFY SIP (Amount / Next Due Date)
+// =====================================
+exports.modifySIP = async (req, res) => {
+    try {
+        await ensureSipSchema();
+        const id = Number(req.params.id);
+        const userId = Number(req.user?.userId || req.user?.id);
+        const newAmount = req.body?.installment_amount !== undefined ? Number(req.body.installment_amount) : null;
+        const newNextDate = req.body?.next_due_date || null;
+
+        const [plans] = await db.execute(
+            `SELECT sp.*, p.minimum_investment FROM sip_plans sp JOIN sip_products p ON p.id = sp.product_id WHERE sp.id = ? AND sp.user_id = ? LIMIT 1`,
+            [id, userId]
+        );
+        if (!plans.length) return res.status(404).json({ success: false, message: "SIP plan not found" });
+
+        if (newAmount !== null) {
+            if (!Number.isFinite(newAmount) || newAmount < Number(plans[0].minimum_investment)) {
+                return res.status(400).json({ success: false, message: `Minimum amount is ₹${plans[0].minimum_investment}` });
+            }
+            await db.execute(`UPDATE sip_plans SET installment_amount = ? WHERE id = ?`, [newAmount, id]);
+            await db.execute(`UPDATE sip_installments SET amount = ? WHERE sip_plan_id = ? AND status = 'upcoming'`, [newAmount, id]);
+        }
+
+        if (newNextDate && parseDate(newNextDate)) {
+            await db.execute(`UPDATE sip_plans SET next_due_date = ? WHERE id = ?`, [newNextDate, id]);
+        }
+
+        return res.json({ success: true, message: "SIP modified successfully" });
+    } catch (error) {
+        console.error("Modify SIP error:", error);
+        return res.status(500).json({ success: false, message: "Unable to modify SIP" });
+    }
+};
+
+// =====================================
+// 17. WATCHLIST
+// =====================================
+exports.getWatchlist = async (req, res) => {
+    try {
+        await ensureSipSchema();
+        const userId = Number(req.user?.userId || req.user?.id);
+        const [rows] = await db.execute(
+            `SELECT w.product_id FROM mf_watchlist w WHERE w.user_id = ?`,
+            [userId]
+        );
+        return res.json({ success: true, data: rows.map((r) => r.product_id) });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Unable to fetch watchlist" });
+    }
+};
+
+exports.toggleWatchlist = async (req, res) => {
+    try {
+        await ensureSipSchema();
+        const userId = Number(req.user?.userId || req.user?.id);
+        const productId = Number(req.body?.product_id);
+        if (!productId) return res.status(400).json({ success: false, message: "product_id required" });
+
+        const [existing] = await db.execute(`SELECT id FROM mf_watchlist WHERE user_id = ? AND product_id = ?`, [userId, productId]);
+        if (existing.length) {
+            await db.execute(`DELETE FROM mf_watchlist WHERE id = ?`, [existing[0].id]);
+            return res.json({ success: true, watchlisted: false });
+        }
+        await db.execute(`INSERT INTO mf_watchlist (user_id, product_id) VALUES (?, ?)`, [userId, productId]);
+        return res.json({ success: true, watchlisted: true });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Unable to update watchlist" });
+    }
+};
+
+// =====================================
+// 18. PORTFOLIO & ALLOTMENT SUMMARY
+// =====================================
+exports.getPortfolio = async (req, res) => {
+    try {
+        await ensureSipSchema();
+        const userId = Number(req.user?.userId || req.user?.id);
+
+        const [orders] = await db.execute(
+            `SELECT io.*, p.product_name, p.provider_name, p.category, p.nav AS latest_nav, p.nav_date
+             FROM investment_orders io
+             JOIN sip_products p ON p.id = io.product_id
+             WHERE io.user_id = ? AND io.order_status IN ('ALLOTTED', 'PARTIALLY_ALLOTTED')
+             ORDER BY io.id DESC`,
+            [userId]
+        );
+
+        const holdingsMap = new Map();
+        let totalInvested = 0;
+        let currentValue = 0;
+
+        for (const o of orders) {
+            const invested = Number(o.amount || 0);
+            const units = Number(o.allotted_units || 0);
+            const latestNav = Number(o.latest_nav || o.applicable_nav || 0);
+            const val = units * latestNav;
+
+            totalInvested += invested;
+            currentValue += val;
+
+            const existing = holdingsMap.get(o.product_id) || {
+                product_id: o.product_id,
+                product_name: o.product_name,
+                provider_name: o.provider_name,
+                category: o.category,
+                latest_nav: latestNav,
+                nav_date: o.nav_date,
+                invested_amount: 0,
+                total_units: 0,
+                current_value: 0
+            };
+            existing.invested_amount += invested;
+            existing.total_units += units;
+            existing.current_value += val;
+            holdingsMap.set(o.product_id, existing);
+        }
+
+        const totalGainLoss = currentValue - totalInvested;
+        const absoluteReturnPct = totalInvested > 0 ? (totalGainLoss / totalInvested) * 100 : 0;
+
+        return res.json({
+            success: true,
+            provider: mfProvider.getIntegrationHealth(),
+            data: {
+                total_invested: Number(totalInvested.toFixed(2)),
+                current_value: Number(currentValue.toFixed(2)),
+                total_gain_loss: Number(totalGainLoss.toFixed(2)),
+                absolute_return_pct: Number(absoluteReturnPct.toFixed(2)),
+                holdings: Array.from(holdingsMap.values()).map((h) => ({
+                    ...h,
+                    invested_amount: Number(h.invested_amount.toFixed(2)),
+                    total_units: Number(h.total_units.toFixed(4)),
+                    current_value: Number(h.current_value.toFixed(2))
+                })),
+                allotments: orders
+            }
+        });
+    } catch (error) {
+        console.error("Portfolio error:", error);
+        return res.status(500).json({ success: false, message: "Unable to fetch mutual fund portfolio" });
+    }
+};
+
+// =====================================
+// 19. PROVIDER WEBHOOK (IDEMPOTENT + HMAC)
+// =====================================
+exports.handleWebhook = async (req, res) => {
+    try {
+        await ensureSipSchema();
+        const sig = req.headers["x-mf-signature"];
+        const sigValid = mfProvider.verifyWebhookSignature(req.body, sig);
+        if (!sigValid && process.env.MF_PROVIDER_MODE === "live") {
+            return res.status(401).json({ success: false, message: "Invalid webhook signature" });
+        }
+
+        const eventId = String(req.body?.event_id || "");
+        const eventType = String(req.body?.event_type || "ORDER_UPDATE");
+        const providerRef = String(req.body?.provider_reference || "");
+
+        if (!eventId) {
+            return res.status(400).json({ success: false, message: "event_id is required" });
+        }
+
+        const [dup] = await db.execute(`SELECT id FROM mf_webhook_events WHERE event_id = ? LIMIT 1`, [eventId]);
+        if (dup.length) {
+            return res.json({ success: true, duplicate: true, message: "Webhook event already processed" });
+        }
+
+        await db.execute(
+            `INSERT INTO mf_webhook_events (event_id, event_type, provider_reference, signature_valid, payload)
+             VALUES (?, ?, ?, ?, ?)`,
+            [eventId, eventType, providerRef || null, sigValid ? 1 : 0, JSON.stringify(req.body)]
+        );
+
+        if (providerRef && req.body?.order_status) {
+            await db.execute(
+                `UPDATE investment_orders
+                 SET order_status = ?,
+                     applicable_nav = COALESCE(?, applicable_nav),
+                     allotted_units = COALESCE(?, allotted_units),
+                     failure_reason = COALESCE(?, failure_reason)
+                 WHERE provider_reference = ?`,
+                [
+                    req.body.order_status,
+                    req.body.applicable_nav || null,
+                    req.body.allotted_units || null,
+                    req.body.failure_reason || null,
+                    providerRef
+                ]
+            );
+        }
+
+        return res.json({ success: true, message: "Webhook processed", signatureValid: sigValid });
+    } catch (error) {
+        console.error("Webhook error:", error);
+        return res.status(500).json({ success: false, message: "Webhook processing failed" });
+    }
+};
+
+// =====================================
+// 20. ADMIN INTEGRATION HEALTH & LOGS
+// =====================================
+exports.getAdminIntegrationInfo = async (req, res) => {
+    try {
+        await ensureSipSchema();
+        const [webhooks] = await db.execute(`SELECT id, event_id, event_type, provider_reference, signature_valid, processed_at FROM mf_webhook_events ORDER BY id DESC LIMIT 20`);
+        const [audits] = await db.execute(`SELECT * FROM mf_audit_logs ORDER BY id DESC LIMIT 30`);
+        return res.json({
+            success: true,
+            data: {
+                integration: mfProvider.getIntegrationHealth(),
+                recentWebhooks: webhooks,
+                recentAuditLogs: audits
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Unable to fetch integration telemetry" });
     }
 };
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   TrendingUp,
   Search,
@@ -108,16 +109,20 @@ function calcSipFutureValue(monthlyAmount, years, annualRate = 0.12) {
 }
 
 export default function CustomerSipPage() {
-  // Primary views: 'hub' | 'all-funds' | 'wizard' | 'portfolio'
-  const [view, setView] = useState('hub');
+  const [searchParams] = useSearchParams();
+  // Primary views: 'hub' | 'all-funds' | 'wizard' | 'portfolio' | 'investments'
+  const [view, setView] = useState(() => (searchParams.get('start') === '1' ? 'wizard' : 'hub'));
 
   // Data state
   const [funds, setFunds] = useState([]);
   const [mySips, setMySips] = useState([]);
+  const [portfolioData, setPortfolioData] = useState(null);
+  const [watchlistIds, setWatchlistIds] = useState([]);
   const [walletBalance, setWalletBalance] = useState(0);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [investmentAccount, setInvestmentAccount] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   // Hub & All-Funds filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -136,10 +141,20 @@ export default function CustomerSipPage() {
   const [sipDay, setSipDay] = useState(10);
   const [showDayModal, setShowDayModal] = useState(false);
 
-  // PAN Setup state
+  // PAN & Full KYC Onboarding state
   const [panInput, setPanInput] = useState('');
+  const [investorName, setInvestorName] = useState('');
+  const [investorDob, setInvestorDob] = useState('');
+  const [investorAddress, setInvestorAddress] = useState('');
+  const [nomineeName, setNomineeName] = useState('');
+  const [nomineeRelation, setNomineeRelation] = useState('Spouse');
+  const [fatcaDeclared, setFatcaDeclared] = useState(true);
   const [panConsent, setPanConsent] = useState(true);
   const [panError, setPanError] = useState('');
+
+  // Modify SIP modal state
+  const [modifyModalSip, setModifyModalSip] = useState(null);
+  const [modifyAmount, setModifyAmount] = useState('');
 
   // Payment & PIN state
   const [paymentSource, setPaymentSource] = useState('wallet');
@@ -162,17 +177,34 @@ export default function CustomerSipPage() {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [prodRes, sipRes, walRes, bankRes, invAccRes] = await Promise.allSettled([
+      const [prodRes, sipRes, walRes, bankRes, invAccRes, portRes, watchRes] = await Promise.allSettled([
         api.get('/sip/products'),
         api.get('/sip/my-sips'),
         walletService.getBalance(),
         bankAccountService.getAccounts(),
-        api.get('/sip/investment-account')
+        api.get('/sip/investment-account'),
+        api.get('/sip/portfolio'),
+        api.get('/sip/watchlist')
       ]);
 
+      if (portRes.status === 'fulfilled' && portRes.value?.data?.data) {
+        setPortfolioData(portRes.value.data.data);
+      }
+      if (watchRes.status === 'fulfilled' && Array.isArray(watchRes.value?.data?.data)) {
+        setWatchlistIds(watchRes.value.data.data);
+      }
+
+      setLoadError('');
       if (prodRes.status === 'fulfilled') {
         const list = prodRes.value?.data?.data || [];
         setFunds(list);
+        if (list.length === 0) {
+          setLoadError('No active mutual fund schemes are available right now.');
+        } else {
+          setSelectedFund((prev) => prev || list.find((f) => f.product_name?.includes('HDFC Mid Cap')) || list[0]);
+        }
+      } else {
+        setLoadError(prodRes.reason?.response?.data?.message || 'Unable to load mutual fund schemes. Please retry.');
       }
       if (sipRes.status === 'fulfilled') {
         setMySips(sipRes.value?.data?.data || []);
@@ -240,10 +272,12 @@ export default function CustomerSipPage() {
     return matching.length > 0 ? matching : funds;
   }, [funds, selectedPlanTier]);
 
+  const activeFund = selectedFund || tierFunds[0] || funds[0] || null;
+
   useEffect(() => {
-    if (tierFunds.length > 0 && (!selectedFund || !tierFunds.some((f) => f.id === selectedFund.id))) {
+    if (tierFunds.length > 0 && (!selectedFund || !tierFunds.some((f) => f.id === activeFund.id))) {
       // Prefer HDFC Mid Cap Fund for Aggressive Growth if present
-      const preferred = tierFunds.find((f) => f.product_name.includes('HDFC Mid Cap')) || tierFunds[0];
+      const preferred = tierFunds.find((f) => f.product_name?.includes('HDFC Mid Cap')) || tierFunds[0];
       setSelectedFund(preferred);
     }
   }, [tierFunds, selectedFund]);
@@ -290,11 +324,14 @@ export default function CustomerSipPage() {
 
   const handleConfirmDay = () => {
     setShowDayModal(false);
-    if (investmentAccount?.pan_number) {
-      setWizardStep('pin');
-    } else {
-      setWizardStep('pan');
+    const now = new Date();
+    const target = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), sipDay));
+    const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    if (target < todayUtc) {
+      target.setUTCMonth(target.getUTCMonth() + 1);
     }
+    setSipStartDate(target.toISOString().slice(0, 10));
+    setWizardStep('details');
   };
 
   const handleSavePan = async (e) => {
@@ -305,14 +342,23 @@ export default function CustomerSipPage() {
       setPanError('Please enter a valid 10-character PAN (e.g., ABCDE1234F).');
       return;
     }
-    if (!panConsent) {
-      setPanError('Please accept the SEBI KYC consent to proceed.');
+    if (!panConsent || !fatcaDeclared) {
+      setPanError('Please accept FATCA/CRS & SEBI KYC declarations to proceed.');
       return;
     }
     setSubmitting(true);
     try {
-      const res = await api.post('/sip/investment-account', { pan_number: cleaned });
-      setInvestmentAccount(res.data?.data || { pan_number: cleaned, kyc_status: 'verified' });
+      const res = await api.post('/sip/investment-account', {
+        pan_number: cleaned,
+        investor_name: investorName.trim() || undefined,
+        dob: investorDob || undefined,
+        address: investorAddress.trim() || undefined,
+        nominee_name: nomineeName.trim() || undefined,
+        nominee_relation: nomineeRelation || undefined,
+        fatca_declared: fatcaDeclared,
+        consent_accepted: panConsent
+      });
+      setInvestmentAccount(res.data?.data || { pan_number: cleaned, kyc_status: 'VERIFIED' });
       setWizardStep('pin');
     } catch (err) {
       setPanError(err?.response?.data?.message || 'Unable to verify PAN. Please check and retry.');
@@ -346,21 +392,40 @@ export default function CustomerSipPage() {
         await bankAccountService.checkBalance(bankId, pinInput, bankObj ? !bankObj.hasUpiPin : false);
       }
 
-      const res = await api.post('/sip/create', {
-        product_id: selectedFund.id,
-        installment_amount: amt,
-        frequency: sipFrequency,
-        debit_day: sipDay,
-        total_installments: 12,
-        payment_source: paymentSource
-      });
+      const isLumpsum = sipFrequency === 'lumpsum';
+      const res = isLumpsum
+        ? await api.post('/sip/investments/one-time', {
+          product_id: activeFund.id,
+          amount: amt,
+          payment_source: paymentSource,
+          idempotency_key: `LMP-${activeFund.id}-${amt}-${Date.now()}`,
+          ...(paymentSource === 'wallet' ? { mpin: pinInput } : {})
+        })
+        : await api.post('/sip/create', {
+          product_id: activeFund.id,
+          installment_amount: amt,
+          frequency: sipFrequency,
+          start_date: sipStartDate,
+          debit_day: sipDay,
+          total_installments: sipDurationMonths,
+          payment_source: paymentSource,
+          ...(paymentSource === 'wallet' ? { mpin: pinInput } : {})
+        });
 
       setSipReceipt({
         ...(res.data?.data || {}),
-        product_name: selectedFund.product_name,
-        provider_name: selectedFund.provider_name,
+        installment_amount: res.data?.data?.installment_amount || amt,
+        frequency: isLumpsum ? 'One-Time (Lumpsum)' : sipFrequency,
+        start_date: res.data?.data?.start_date || sipStartDate,
+        next_due_date: res.data?.data?.next_due_date || 'N/A (Lumpsum)',
+        product_name: activeFund.product_name,
+        provider_name: activeFund.provider_name,
+        plan_tier: selectedPlanTier,
         sip_day: sipDay,
-        payment_source: paymentSource
+        duration_months: sipDurationMonths,
+        payment_source: paymentSource,
+        transaction_reference: res.data?.data?.order_reference || res.data?.data?.transaction_reference,
+        created_at: new Date().toLocaleString('en-IN')
       });
       setPinInput('');
       setWizardStep('success');
@@ -370,6 +435,29 @@ export default function CustomerSipPage() {
       setPinError(msg);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleToggleWatchlist = async (productId, e) => {
+    e?.stopPropagation();
+    try {
+      const res = await api.post('/sip/watchlist/toggle', { product_id: productId });
+      setWatchlistIds((prev) =>
+        res.data?.watchlisted ? [...new Set([...prev, productId])] : prev.filter((id) => id !== productId)
+      );
+    } catch (_) { }
+  };
+
+  const handleModifySip = async (e) => {
+    e.preventDefault();
+    if (!modifyModalSip) return;
+    try {
+      await api.patch(`/sip/${modifyModalSip.id}/modify`, { installment_amount: Number(modifyAmount) });
+      setModifyModalSip(null);
+      showToast('SIP amount modified successfully.');
+      loadAllData();
+    } catch (err) {
+      showToast(err?.response?.data?.message || 'Unable to modify SIP.');
     }
   };
 
@@ -452,7 +540,8 @@ export default function CustomerSipPage() {
             { id: 'hub', label: 'Mutual Funds', icon: Sparkles },
             { id: 'all-funds', label: 'Explore Funds', icon: Layers },
             { id: 'wizard', label: 'Start a SIP', icon: TrendingUp },
-            { id: 'portfolio', label: `My SIPs (${mySips.length})`, icon: Calendar }
+            { id: 'portfolio', label: `My SIPs (${mySips.length})`, icon: Calendar },
+            { id: 'investments', label: 'Portfolio', icon: Award }
           ].map((tab) => {
             const Icon = tab.icon;
             const active = view === tab.id;
@@ -1049,6 +1138,22 @@ export default function CustomerSipPage() {
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <button
                         type="button"
+                        onClick={(e) => handleToggleWatchlist(fund.id, e)}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: '9px',
+                          background: watchlistIds.includes(fund.id) ? 'rgba(245, 158, 11, 0.16)' : '#0B1222',
+                          border: watchlistIds.includes(fund.id) ? '1px solid rgba(245, 158, 11, 0.45)' : '1px solid rgba(255,255,255,0.12)',
+                          color: watchlistIds.includes(fund.id) ? '#FBBF24' : '#94A3B8',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {watchlistIds.includes(fund.id) ? '★ Saved' : '☆ Save'}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setFundDetailsModal(fund)}
                         style={{
                           padding: '8px 14px',
@@ -1136,8 +1241,9 @@ export default function CustomerSipPage() {
                   if (wizardStep === 'amount') setView('hub');
                   else if (wizardStep === 'plan') setWizardStep('amount');
                   else if (wizardStep === 'fund') setWizardStep('plan');
-                  else if (wizardStep === 'pan') setWizardStep('fund');
-                  else if (wizardStep === 'pin') setWizardStep('fund');
+                  else if (wizardStep === 'details') setWizardStep('fund');
+                  else if (wizardStep === 'pan') setWizardStep('details');
+                  else if (wizardStep === 'pin') setWizardStep('details');
                 }}
                 style={{
                   display: 'flex',
@@ -1158,7 +1264,7 @@ export default function CustomerSipPage() {
               </button>
 
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                {['amount', 'plan', 'fund', 'pin'].map((st, idx) => {
+                {['amount', 'plan', 'fund', 'details', 'pin'].map((st) => {
                   const active = wizardStep === st || (st === 'pin' && wizardStep === 'pan');
                   return (
                     <span
@@ -1427,8 +1533,39 @@ export default function CustomerSipPage() {
             </div>
           )}
 
+          {/* FALLBACK WHEN SCHEME DATA IS LOADING, EMPTY, OR FAILED */}
+          {(wizardStep === 'fund' || wizardStep === 'details' || wizardStep === 'pin') && !activeFund && (
+            <div style={{ padding: '32px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+              {loading ? (
+                <div style={{ color: '#94A3B8', fontSize: '14px' }}>Loading mutual fund schemes...</div>
+              ) : (
+                <>
+                  <div style={{ color: '#F87171', fontSize: '14px', fontWeight: 600 }}>
+                    {loadError || 'No mutual fund scheme selected. Please select a scheme or retry loading.'}
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={loadAllData}
+                      style={{ padding: '9px 16px', borderRadius: '10px', background: '#0099FF', border: 'none', color: '#FFFFFF', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      Retry Loading Funds
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setView('all-funds')}
+                      style={{ padding: '9px 16px', borderRadius: '10px', background: '#0B1222', border: '1px solid rgba(255,255,255,0.14)', color: '#FFFFFF', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Browse All Funds
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* STEP 3: SELECT FUND */}
-          {wizardStep === 'fund' && selectedFund && (
+          {wizardStep === 'fund' && activeFund && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#FFFFFF' }}>
@@ -1467,17 +1604,17 @@ export default function CustomerSipPage() {
                         fontSize: '12px'
                       }}
                     >
-                      {(selectedFund.amc_code || 'FUND').toUpperCase()}
+                      {(activeFund.amc_code || 'FUND').toUpperCase()}
                     </div>
                     <div>
-                      <div style={{ fontSize: '17px', fontWeight: 700, color: '#FFFFFF' }}>{selectedFund.product_name}</div>
+                      <div style={{ fontSize: '17px', fontWeight: 700, color: '#FFFFFF' }}>{activeFund.product_name}</div>
                       <div style={{ fontSize: '12px', color: '#94A3B8' }}>
-                        {selectedFund.sub_category || selectedFund.category} • Min ₹{Number(selectedFund.minimum_investment || 100)}
+                        {activeFund.sub_category || activeFund.category} • Min ₹{Number(activeFund.minimum_investment || 100)}
                       </div>
                     </div>
                   </div>
 
-                  {selectedFund.badge_text && (
+                  {activeFund.badge_text && (
                     <span
                       style={{
                         fontSize: '11px',
@@ -1488,7 +1625,7 @@ export default function CustomerSipPage() {
                         borderRadius: '999px'
                       }}
                     >
-                      🪙 {selectedFund.badge_text}
+                      🪙 {activeFund.badge_text}
                     </span>
                   )}
                 </div>
@@ -1506,13 +1643,13 @@ export default function CustomerSipPage() {
                   <div>
                     <div style={{ fontSize: '11px', color: '#64748B' }}>Last 5Y</div>
                     <div style={{ fontSize: '16px', fontWeight: 700, color: '#10B981' }}>
-                      {Number(selectedFund.return_5y || 18).toFixed(2)}% p.a
+                      {Number(activeFund.return_5y || 18).toFixed(2)}% p.a
                     </div>
                   </div>
                   <div>
                     <div style={{ fontSize: '11px', color: '#64748B' }}>Since Launch</div>
                     <div style={{ fontSize: '16px', fontWeight: 700, color: '#FFFFFF' }}>
-                      {Number(selectedFund.return_since_launch || 16).toFixed(2)}% p.a
+                      {Number(activeFund.return_since_launch || 16).toFixed(2)}% p.a
                     </div>
                   </div>
                   <div>
@@ -1523,7 +1660,7 @@ export default function CustomerSipPage() {
                   <div>
                     <div style={{ fontSize: '11px', color: '#64748B' }}>Fund Size</div>
                     <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF' }}>
-                      ₹{Number(selectedFund.fund_size_cr || 10000).toLocaleString('en-IN')} Cr
+                      ₹{Number(activeFund.fund_size_cr || 10000).toLocaleString('en-IN')} Cr
                     </div>
                   </div>
                 </div>
@@ -1573,7 +1710,7 @@ export default function CustomerSipPage() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
                     {tierFunds
-                      .filter((f) => f.id !== selectedFund.id)
+                      .filter((f) => f.id !== activeFund.id)
                       .map((f) => (
                         <div
                           key={f.id}
@@ -1604,7 +1741,179 @@ export default function CustomerSipPage() {
             </div>
           )}
 
-          {/* STEP 5: PAN / INVESTMENT ACCOUNT SETUP */}
+          {/* STEP 4: SIP DETAILS, 4 INVESTMENT MODES & SCHEDULE */}
+          {wizardStep === 'details' && activeFund && (
+            <div style={{ maxWidth: '580px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#38BDF8', textTransform: 'uppercase' }}>
+                  Sandbox MF Distributor
+                </span>
+                <h2 style={{ margin: '4px 0 2px', fontSize: '20px', fontWeight: 700, color: '#FFFFFF' }}>
+                  Investment Type &amp; Schedule
+                </h2>
+                <p style={{ margin: 0, fontSize: '12px', color: '#94A3B8' }}>
+                  Choose Weekly, Monthly, Yearly SIP or One-Time Lumpsum • Demo NAV: ₹{Number(activeFund.nav || 45).toFixed(2)}
+                </p>
+              </div>
+
+              {/* 4 Investment Options */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '8px' }}>
+                  Select Investment Option
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px' }}>
+                  {[
+                    { id: 'weekly', label: 'Weekly SIP' },
+                    { id: 'monthly', label: 'Monthly SIP' },
+                    { id: 'yearly', label: 'Yearly SIP' },
+                    { id: 'lumpsum', label: 'One-Time' }
+                  ].map((opt) => {
+                    const supportedList = String(activeFund.supported_frequencies || 'weekly,monthly,yearly,lumpsum')
+                      .split(',')
+                      .map((s) => s.trim().toLowerCase());
+                    const supported = supportedList.includes(opt.id);
+                    const active = sipFrequency === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        disabled={!supported}
+                        onClick={() => setSipFrequency(opt.id)}
+                        style={{
+                          padding: '10px 8px',
+                          borderRadius: '10px',
+                          border: active ? '1.5px solid #A855F7' : '1px solid rgba(255,255,255,0.1)',
+                          background: !supported ? 'rgba(15,23,42,0.4)' : active ? 'rgba(168,85,247,0.2)' : '#0B1222',
+                          color: !supported ? '#475569' : '#FFFFFF',
+                          fontSize: '12.5px',
+                          fontWeight: 700,
+                          cursor: supported ? 'pointer' : 'not-allowed'
+                        }}
+                      >
+                        {opt.label}
+                        {!supported && <div style={{ fontSize: '9px', color: '#64748B' }}>Not supported</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: '#0B1222',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '14px',
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  fontSize: '13px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94A3B8' }}>Selected Scheme</span>
+                  <span style={{ color: '#FFFFFF', fontWeight: 700 }}>{activeFund.product_name}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94A3B8' }}>Plan &amp; Expense Ratio</span>
+                  <span style={{ color: '#38BDF8', fontWeight: 600 }}>
+                    {activeFund.plan_option || 'Direct - Growth'} ({Number(activeFund.expense_ratio || 0.72).toFixed(2)}%)
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94A3B8' }}>Amount</span>
+                  <span style={{ color: '#10B981', fontWeight: 800 }}>
+                    ₹{Number(sipAmount).toLocaleString('en-IN')} {sipFrequency === 'lumpsum' ? '(One-Time)' : `/ ${sipFrequency}`}
+                  </span>
+                </div>
+              </div>
+
+              {sipFrequency !== 'lumpsum' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '6px' }}>
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      min={todayStr}
+                      value={sipStartDate}
+                      onChange={(e) => setSipStartDate(e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '42px',
+                        padding: '0 12px',
+                        borderRadius: '10px',
+                        background: '#0B1222',
+                        border: '1px solid rgba(255,255,255,0.14)',
+                        color: '#FFFFFF',
+                        fontSize: '13px'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '6px' }}>
+                      Installments
+                    </label>
+                    <select
+                      value={sipDurationMonths}
+                      onChange={(e) => setSipDurationMonths(Number(e.target.value))}
+                      style={{
+                        width: '100%',
+                        height: '42px',
+                        padding: '0 12px',
+                        borderRadius: '10px',
+                        background: '#0B1222',
+                        border: '1px solid rgba(255,255,255,0.14)',
+                        color: '#FFFFFF',
+                        fontSize: '13px'
+                      }}
+                    >
+                      <option value={12}>12 Installments</option>
+                      <option value={24}>24 Installments</option>
+                      <option value={36}>36 Installments</option>
+                      <option value={60}>60 Installments</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div
+                style={{
+                  background: 'rgba(56, 189, 248, 0.08)',
+                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                  borderRadius: '10px',
+                  padding: '10px 12px',
+                  fontSize: '11.5px',
+                  color: '#BAE6FD'
+                }}
+              >
+                Mutual fund investments are market-linked and returns are not guaranteed. Sandbox Mode simulates BSE StAR MF order &amp; allotment without real money movement.
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const kycOk = String(investmentAccount?.kyc_status || '').toUpperCase() === 'VERIFIED';
+                  setWizardStep(kycOk ? 'pin' : 'pan');
+                }}
+                style={{
+                  padding: '13px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #A855F7, #7C3AED)',
+                  border: 'none',
+                  color: '#FFFFFF',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Proceed to {String(investmentAccount?.kyc_status || '').toUpperCase() === 'VERIFIED' ? 'Authorization' : 'Investor KYC'} →
+              </button>
+            </div>
+          )}
+
+          {/* STEP 5: PAN & FULL INVESTOR KYC ONBOARDING */}
           {wizardStep === 'pan' && (
             <form onSubmit={handleSavePan} style={{ maxWidth: '480px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
@@ -1621,7 +1930,7 @@ export default function CustomerSipPage() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '6px' }}>
-                  Enter your PAN
+                  Enter your PAN *
                 </label>
                 <input
                   type="text"
@@ -1631,18 +1940,99 @@ export default function CustomerSipPage() {
                   placeholder="e.g. ABCDE1234F"
                   style={{
                     width: '100%',
-                    height: '46px',
+                    height: '44px',
                     padding: '0 14px',
                     borderRadius: '12px',
                     background: '#0B1222',
                     border: '1px solid rgba(255,255,255,0.14)',
                     color: '#FFFFFF',
-                    fontSize: '16px',
+                    fontSize: '15px',
                     fontWeight: 700,
                     letterSpacing: '0.08em'
                   }}
                 />
               </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '4px' }}>
+                    Investor Full Name
+                  </label>
+                  <input
+                    type="text"
+                    value={investorName}
+                    onChange={(e) => setInvestorName(e.target.value)}
+                    placeholder="As per PAN"
+                    style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', background: '#0B1222', border: '1px solid rgba(255,255,255,0.14)', color: '#FFFFFF', fontSize: '13px' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '4px' }}>
+                    Date of Birth
+                  </label>
+                  <input
+                    type="date"
+                    value={investorDob}
+                    onChange={(e) => setInvestorDob(e.target.value)}
+                    style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', background: '#0B1222', border: '1px solid rgba(255,255,255,0.14)', color: '#FFFFFF', fontSize: '13px' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '4px' }}>
+                  Communication Address
+                </label>
+                <input
+                  type="text"
+                  value={investorAddress}
+                  onChange={(e) => setInvestorAddress(e.target.value)}
+                  placeholder="City, State, PIN"
+                  style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', background: '#0B1222', border: '1px solid rgba(255,255,255,0.14)', color: '#FFFFFF', fontSize: '13px' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '4px' }}>
+                    Nominee Name
+                  </label>
+                  <input
+                    type="text"
+                    value={nomineeName}
+                    onChange={(e) => setNomineeName(e.target.value)}
+                    placeholder="Optional nominee"
+                    style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', background: '#0B1222', border: '1px solid rgba(255,255,255,0.14)', color: '#FFFFFF', fontSize: '13px' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '4px' }}>
+                    Nominee Relation
+                  </label>
+                  <select
+                    value={nomineeRelation}
+                    onChange={(e) => setNomineeRelation(e.target.value)}
+                    style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', background: '#0B1222', border: '1px solid rgba(255,255,255,0.14)', color: '#FFFFFF', fontSize: '13px' }}
+                  >
+                    <option value="Spouse">Spouse</option>
+                    <option value="Parent">Parent</option>
+                    <option value="Child">Child</option>
+                    <option value="Sibling">Sibling</option>
+                  </select>
+                </div>
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '12px', color: '#94A3B8', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={fatcaDeclared}
+                  onChange={(e) => setFatcaDeclared(e.target.checked)}
+                  style={{ marginTop: '2px', accentColor: '#A855F7' }}
+                />
+                <span>
+                  FATCA / CRS Declaration: I am an Indian tax resident and confirm details are accurate.
+                </span>
+              </label>
 
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '12px', color: '#94A3B8', cursor: 'pointer' }}>
                 <input
@@ -1652,7 +2042,7 @@ export default function CustomerSipPage() {
                   style={{ marginTop: '2px', accentColor: '#A855F7' }}
                 />
                 <span>
-                  I authorize ApnaPay Wealth to verify my PAN for KYC & mutual fund investment account setup as per SEBI regulations.
+                  I authorize ApnaPay Wealth to verify my PAN for KYC &amp; mutual fund investment account setup as per SEBI regulations.
                 </span>
               </label>
 
@@ -1678,7 +2068,7 @@ export default function CustomerSipPage() {
           )}
 
           {/* STEP 6: PAYMENT SOURCE & UPI PIN */}
-          {wizardStep === 'pin' && selectedFund && (
+          {wizardStep === 'pin' && activeFund && (
             <form onSubmit={handleExecuteSip} style={{ maxWidth: '520px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#FFFFFF' }}>
@@ -1704,7 +2094,7 @@ export default function CustomerSipPage() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#94A3B8' }}>Fund</span>
-                  <span style={{ color: '#FFFFFF', fontWeight: 700 }}>{selectedFund.product_name}</span>
+                  <span style={{ color: '#FFFFFF', fontWeight: 700 }}>{activeFund.product_name}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#94A3B8' }}>SIP Amount ({sipFrequency})</span>
@@ -2015,8 +2405,8 @@ export default function CustomerSipPage() {
                             sip.status === 'active'
                               ? 'rgba(16, 185, 129, 0.16)'
                               : sip.status === 'paused'
-                              ? 'rgba(245, 158, 11, 0.16)'
-                              : 'rgba(239, 68, 68, 0.16)',
+                                ? 'rgba(245, 158, 11, 0.16)'
+                                : 'rgba(239, 68, 68, 0.16)',
                           color: sip.status === 'active' ? '#34D399' : sip.status === 'paused' ? '#FBBF24' : '#F87171'
                         }}
                       >
@@ -2047,26 +2437,47 @@ export default function CustomerSipPage() {
                       Installments
                     </button>
                     {(sip.status === 'active' || sip.status === 'paused') && (
-                      <button
-                        type="button"
-                        onClick={() => handlePauseResume(sip)}
-                        style={{
-                          padding: '7px 12px',
-                          borderRadius: '8px',
-                          background: 'rgba(245, 158, 11, 0.14)',
-                          border: '1px solid rgba(245, 158, 11, 0.3)',
-                          color: '#FCD34D',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        {sip.status === 'active' ? <Pause size={13} /> : <Play size={13} />}
-                        <span>{sip.status === 'active' ? 'Pause' : 'Resume'}</span>
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModifyModalSip(sip);
+                            setModifyAmount(String(sip.installment_amount));
+                          }}
+                          style={{
+                            padding: '7px 12px',
+                            borderRadius: '8px',
+                            background: 'rgba(56, 189, 248, 0.14)',
+                            border: '1px solid rgba(56, 189, 248, 0.3)',
+                            color: '#38BDF8',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Modify
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePauseResume(sip)}
+                          style={{
+                            padding: '7px 12px',
+                            borderRadius: '8px',
+                            background: 'rgba(245, 158, 11, 0.14)',
+                            border: '1px solid rgba(245, 158, 11, 0.3)',
+                            color: '#FCD34D',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          {sip.status === 'active' ? <Pause size={13} /> : <Play size={13} />}
+                          <span>{sip.status === 'active' ? 'Pause' : 'Resume'}</span>
+                        </button>
+                      </>
                     )}
                     {sip.status !== 'cancelled' && sip.status !== 'completed' && (
                       <button
@@ -2091,6 +2502,215 @@ export default function CustomerSipPage() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ==================== VIEW 5: PORTFOLIO & ALLOTMENT HISTORY ==================== */}
+      {view === 'investments' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#FFFFFF' }}>Mutual Fund Portfolio</h2>
+              <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#94A3B8' }}>
+                Current Value = Confirmed Units × Latest NAV • Sandbox Mode
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setView('hub')}
+              style={{
+                padding: '8px 14px',
+                borderRadius: '10px',
+                background: 'rgba(168, 85, 247, 0.16)',
+                border: '1px solid rgba(168, 85, 247, 0.35)',
+                color: '#E9D5FF',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              + Explore Funds
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+            {[
+              { label: 'Total Invested', value: `₹${Number(portfolioData?.total_invested || 0).toLocaleString('en-IN')}`, color: '#FFFFFF' },
+              { label: 'Current Value', value: `₹${Number(portfolioData?.current_value || 0).toLocaleString('en-IN')}`, color: '#38BDF8' },
+              {
+                label: 'Total Gain / Loss',
+                value: `₹${Number(portfolioData?.total_gain_loss || 0).toLocaleString('en-IN')}`,
+                color: Number(portfolioData?.total_gain_loss || 0) >= 0 ? '#10B981' : '#EF4444'
+              },
+              {
+                label: 'Absolute Return',
+                value: `${Number(portfolioData?.absolute_return_pct || 0).toFixed(2)}%`,
+                color: Number(portfolioData?.absolute_return_pct || 0) >= 0 ? '#10B981' : '#EF4444'
+              }
+            ].map((card) => (
+              <div
+                key={card.label}
+                style={{
+                  background: 'rgba(17, 28, 51, 0.85)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '14px',
+                  padding: '16px'
+                }}
+              >
+                <div style={{ fontSize: '11px', color: '#94A3B8' }}>{card.label}</div>
+                <div style={{ fontSize: '20px', fontWeight: 800, color: card.color, marginTop: '4px' }}>{card.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Scheme-wise Holdings */}
+          <div style={{ background: 'rgba(17, 28, 51, 0.85)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '18px' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '15px', fontWeight: 700, color: '#FFFFFF' }}>
+              Scheme-wise Holdings ({portfolioData?.holdings?.length || 0})
+            </h3>
+            {!portfolioData?.holdings?.length ? (
+              <div style={{ fontSize: '13px', color: '#94A3B8' }}>No confirmed mutual fund unit allotments yet.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {portfolioData.holdings.map((h) => (
+                  <div
+                    key={h.product_id}
+                    style={{
+                      background: '#0B1222',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '12px',
+                      padding: '14px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '10px'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#FFFFFF' }}>{h.product_name}</div>
+                      <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '2px' }}>
+                        Units: {h.total_units} • Latest NAV: ₹{h.latest_nav}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '14px', fontWeight: 800, color: '#10B981' }}>
+                        ₹{Number(h.current_value).toLocaleString('en-IN')}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#94A3B8' }}>
+                        Invested: ₹{Number(h.invested_amount).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Allotment & Investment Order History */}
+          <div style={{ background: 'rgba(17, 28, 51, 0.85)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '18px' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '15px', fontWeight: 700, color: '#FFFFFF' }}>
+              Allotment &amp; Investment History ({portfolioData?.allotments?.length || 0})
+            </h3>
+            {!portfolioData?.allotments?.length ? (
+              <div style={{ fontSize: '13px', color: '#94A3B8' }}>No investment allotment history recorded yet.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {portfolioData.allotments.slice(0, 15).map((ord) => (
+                  <div
+                    key={ord.id}
+                    style={{
+                      background: '#0B1222',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '10px',
+                      padding: '12px 14px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '8px',
+                      fontSize: '12.5px'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, color: '#FFFFFF' }}>{ord.product_name}</div>
+                      <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '2px' }}>
+                        {ord.order_reference || ord.provider_reference} • {String(ord.order_type || 'sip').toUpperCase()} • NAV ₹{ord.applicable_nav}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 700, color: '#10B981' }}>
+                        ₹{Number(ord.amount).toLocaleString('en-IN')} ({ord.allotted_units} units)
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#38BDF8' }}>{ord.order_status}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: MODIFY SIP AMOUNT ==================== */}
+      {modifyModalSip && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.78)',
+            zIndex: 9990,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px'
+          }}
+        >
+          <form
+            onSubmit={handleModifySip}
+            style={{
+              width: '100%',
+              maxWidth: '380px',
+              background: '#111C33',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: '18px',
+              padding: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px'
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#FFFFFF' }}>Modify SIP Amount</h3>
+            <p style={{ margin: 0, fontSize: '12px', color: '#94A3B8' }}>{modifyModalSip.product_name}</p>
+            <input
+              type="number"
+              min={10}
+              value={modifyAmount}
+              onChange={(e) => setModifyAmount(e.target.value)}
+              style={{
+                padding: '10px 12px',
+                borderRadius: '10px',
+                background: '#0B1222',
+                border: '1px solid rgba(255,255,255,0.12)',
+                color: '#FFFFFF',
+                fontSize: '15px',
+                fontWeight: 700
+              }}
+            />
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setModifyModalSip(null)}
+                style={{ flex: 1, padding: '10px', borderRadius: '10px', background: '#0B1222', border: '1px solid rgba(255,255,255,0.12)', color: '#FFFFFF', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                style={{ flex: 1, padding: '10px', borderRadius: '10px', background: '#0099FF', border: 'none', color: '#FFFFFF', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Save Change
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
@@ -2257,6 +2877,22 @@ export default function CustomerSipPage() {
                   ₹{Number(fundDetailsModal.fund_size_cr || 10000).toLocaleString('en-IN')} Cr
                 </div>
               </div>
+              <div>
+                <div style={{ fontSize: '11px', color: '#64748B' }}>Demo NAV</div>
+                <div style={{ fontSize: '15px', fontWeight: 700, color: '#38BDF8' }}>
+                  ₹{Number(fundDetailsModal.nav || 45).toFixed(2)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: '#64748B' }}>Expense Ratio</div>
+                <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF' }}>
+                  {Number(fundDetailsModal.expense_ratio || 0.72).toFixed(2)}%
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: '11.5px', color: '#94A3B8', lineHeight: 1.4 }}>
+              Plan: {fundDetailsModal.plan_option || 'Direct - Growth'} • Supported:{' '}
+              {fundDetailsModal.supported_frequencies || 'weekly,monthly,yearly,lumpsum'}. Mutual fund investments are subject to market risks.
             </div>
 
             <button

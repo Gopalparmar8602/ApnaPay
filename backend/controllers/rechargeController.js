@@ -1,6 +1,7 @@
 
 const db = require("../config/db");
 const crypto = require("crypto");
+const { verifyUserMpin } = require("../services/mpinService");
 
 
 // =====================================
@@ -300,6 +301,18 @@ const createRecharge = async (req, res) => {
                 success: false,
                 message: "operator_id, mobile_number and amount are required"
             });
+        }
+
+        // Verify centralized 4-digit MPIN when paying via ApnaPay Wallet or mpin is supplied
+        if (req.body.payment_source === "wallet" || req.body.mpin !== undefined) {
+            const mpinCheck = await verifyUserMpin(effectiveUserId, req.body.mpin);
+            if (!mpinCheck.ok) {
+                return res.status(mpinCheck.status).json({
+                    success: false,
+                    code: mpinCheck.code,
+                    message: mpinCheck.message
+                });
+            }
         }
 
         // Mobile number validation

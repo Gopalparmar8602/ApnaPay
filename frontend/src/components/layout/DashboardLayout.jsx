@@ -432,8 +432,41 @@ const DashboardLayout = ({
             </div>
           </div>
 
-          {/* Right Header Controls (Notifications, User Avatar & Help in Corner) */}
+          {/* Right Header Controls (Scan QR on Desktop, Notifications, User Avatar & Help) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <button
+              type="button"
+              className="hide-on-mobile"
+              onClick={() => {
+                if (location.pathname !== '/app') {
+                  navigate('/app');
+                  setTimeout(() => window.dispatchEvent(new CustomEvent('open-qr-scanner')), 150);
+                } else {
+                  window.dispatchEvent(new CustomEvent('open-qr-scanner'));
+                }
+              }}
+              title="Scan any QR Code"
+              aria-label="Scan any QR Code"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                height: '38px',
+                padding: '0 14px',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, #087BFF 0%, #00D5FF 100%)',
+                border: 'none',
+                color: '#FFFFFF',
+                fontSize: '12.5px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(0, 168, 255, 0.35)'
+              }}
+            >
+              <QrCodeIcon size={16} />
+              <span>Scan QR</span>
+            </button>
+
             {/* Notification Bell Dropdown */}
             <NotificationDropdown />
 
