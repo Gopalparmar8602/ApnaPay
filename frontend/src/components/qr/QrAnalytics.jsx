@@ -228,7 +228,7 @@ export default function QrAnalytics({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
           gap: "20px",
           marginTop: "20px"
         }}

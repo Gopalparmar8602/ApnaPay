@@ -45,6 +45,24 @@ const generateReferenceId = (row) => {
     return `TXN${row.id}`;
 };
 
+// Helper: Format Date & Time in IST (Asia/Kolkata) with AM/PM
+const formatISTDateTime = (dateInput = new Date()) => {
+    const d = dateInput ? new Date(dateInput) : new Date();
+    if (Number.isNaN(d.getTime())) return 'N/A';
+    return d
+        .toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        })
+        .replace(/\b(am|pm)\b/i, (m) => m.toUpperCase()) + ' IST';
+};
+
 // Helper: Generate CSV content
 const generateCsvContent = (transactions, user) => {
     const headers = [
@@ -69,7 +87,7 @@ const generateCsvContent = (transactions, user) => {
     const rows = [headers.map(escapeCsvField).join(',')];
 
     transactions.forEach(t => {
-        const dateFormatted = t.createdAt ? new Date(t.createdAt).toISOString().replace('T', ' ').slice(0, 19) : '';
+        const dateFormatted = t.createdAt ? formatISTDateTime(t.createdAt) : '';
         rows.push([
             escapeCsvField(t.id),
             escapeCsvField(dateFormatted),
@@ -96,7 +114,7 @@ const generatePdfDocument = (transactions, user, summary) => {
         '',
         `Account Holder: ${user.full_name || 'Valued Customer'}`,
         `Account Email : ${user.email || 'N/A'} | Phone: ${user.phone || 'N/A'}`,
-        `Generated On  : ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`,
+        `Generated On  : ${formatISTDateTime(new Date())}`,
         `Total Credits : INR ${(summary.totalCredit || 0).toFixed(2)} | Total Debits: INR ${(summary.totalDebit || 0).toFixed(2)}`,
         `Net Flow      : INR ${(summary.netAmount || 0).toFixed(2)} | Total Transactions: ${transactions.length}`,
         '--------------------------------------------------------------------------------',

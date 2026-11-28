@@ -21,6 +21,12 @@ const upiService = {
   deleteUpiHandle: async (id) => {
     const res = await api.delete(`/upi/handles/${id}`);
     return res.data;
+  },
+
+  // 4. PATCH /upi/handles/:id/primary - Set default UPI handle
+  setPrimaryUpiHandle: async (id) => {
+    const res = await api.patch(`/upi/handles/${id}/primary`);
+    return res.data;
   }
 };
 

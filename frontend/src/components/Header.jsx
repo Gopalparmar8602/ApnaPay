@@ -92,6 +92,7 @@ export default function Header({ active, setActive, onMenuToggle, onProfileClick
         />
         {!searchQuery ? (
           <span
+            className="top-search-kbd"
             style={{
               position: "absolute",
               right: "12px",

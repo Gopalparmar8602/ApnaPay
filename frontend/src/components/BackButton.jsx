@@ -45,10 +45,9 @@ const BackButton = ({
       className={`back-button ${className}`}
       style={style}
       aria-label={label || 'Back'}
-      title="Go back to previous page"
+      title={label || 'Go back to previous page'}
     >
       <ArrowLeftIcon size={18} />
-      <span className="back-button-label">{label}</span>
     </button>
   );
 };

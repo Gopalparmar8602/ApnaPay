@@ -95,7 +95,7 @@ export default function RechargePlansCatalog({ plans = [], loading = false }) {
         </div>
 
         {/* Search Input in Header */}
-        <div style={{ position: "relative", minWidth: "220px" }}>
+        <div style={{ position: "relative", flex: "1 1 220px", minWidth: "min(100%, 220px)" }}>
           <input
             type="text"
             placeholder="Search plans by amount or name..."

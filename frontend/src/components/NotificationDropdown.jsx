@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import notificationService from '../services/notificationService';
 import {
@@ -71,7 +72,85 @@ const NotificationDropdown = () => {
   const [preferences, setPreferences] = useState(null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('apnapay_notif_voice_enabled');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
   const dropdownRef = useRef(null);
+  const panelRef = useRef(null);
+  const lastSeenNotifIdRef = useRef(null);
+  const voiceEnabledRef = useRef(voiceEnabled);
+  const [isMobileView, setIsMobileView] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const onChange = (e) => setIsMobileView(e.matches);
+    setIsMobileView(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    voiceEnabledRef.current = voiceEnabled;
+    try {
+      localStorage.setItem('apnapay_notif_voice_enabled', String(voiceEnabled));
+    } catch { }
+  }, [voiceEnabled]);
+
+  // Play crisp 2-tone chime + spoken voice alert (ApnaPay Soundbox style)
+  const playNotificationVoice = (title, message = '') => {
+    if (!voiceEnabledRef.current) return;
+
+    // 1. Subtle 2-note chime via Web Audio API
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+        [1046.5, 1318.5].forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.11);
+          gain.gain.setValueAtTime(0.001, now + idx * 0.11);
+          gain.gain.exponentialRampToValueAtTime(0.14, now + idx * 0.11 + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.11 + 0.22);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + idx * 0.11);
+          osc.stop(now + idx * 0.11 + 0.24);
+        });
+      }
+    } catch { }
+
+    // 2. Spoken announcement via Web Speech API
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const cleanTitle = String(title || 'New notification').replace(/₹\s*/g, 'Rupees ');
+        const cleanMsg = String(message || '').split('\n')[0].replace(/₹\s*/g, 'Rupees ');
+        const speechText = cleanMsg && cleanMsg.length <= 90
+          ? `ApnaPay Alert. ${cleanTitle}. ${cleanMsg}`
+          : `ApnaPay Alert. ${cleanTitle}`;
+        const utterance = new SpeechSynthesisUtterance(speechText);
+        utterance.lang = 'en-IN';
+        utterance.rate = 1.0;
+        utterance.pitch = 1.05;
+        utterance.volume = 0.95;
+        setTimeout(() => {
+          try {
+            window.speechSynthesis.speak(utterance);
+          } catch { }
+        }, 200);
+      }
+    } catch { }
+  };
 
   // Fetch notifications
   const loadNotifications = async (status = filter, showSpinner = true) => {
@@ -85,8 +164,25 @@ const NotificationDropdown = () => {
       });
 
       if (res && res.success) {
-        setNotifications(res.data?.records || []);
+        const records = res.data?.records || [];
+        setNotifications(records);
         setUnreadCount(typeof res.data?.unreadCount === 'number' ? res.data.unreadCount : 0);
+
+        // Announce genuinely new unread notification on subsequent polls
+        if (records.length > 0) {
+          const newest = records[0];
+          const newestId = Number(newest.id || 0);
+          if (lastSeenNotifIdRef.current === null) {
+            lastSeenNotifIdRef.current = newestId;
+          } else if (newestId > lastSeenNotifIdRef.current) {
+            lastSeenNotifIdRef.current = newestId;
+            if (!newest.is_read) {
+              playNotificationVoice(newest.title, newest.message);
+            }
+          }
+        } else if (lastSeenNotifIdRef.current === null) {
+          lastSeenNotifIdRef.current = 0;
+        }
       }
     } catch (err) {
       console.warn('Failed to fetch notifications:', err?.response?.data?.message || err.message);
@@ -139,7 +235,9 @@ const NotificationDropdown = () => {
   // Handle outside click & ESC key to close
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+      const inWrapper = dropdownRef.current && dropdownRef.current.contains(e.target);
+      const inPanel = panelRef.current && panelRef.current.contains(e.target);
+      if (!inWrapper && !inPanel) {
         setIsOpen(false);
       }
     };
@@ -163,9 +261,11 @@ const NotificationDropdown = () => {
     try {
       await notificationService.markAsRead(id);
       setNotifications((prev) =>
-        prev.map((item) =>
-          item.id === id ? { ...item, is_read: 1, read_at: new Date().toISOString() } : item
-        )
+        filter === 'unread'
+          ? prev.filter((item) => item.id !== id)
+          : prev.map((item) =>
+              item.id === id ? { ...item, is_read: 1, read_at: new Date().toISOString() } : item
+            )
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch (err) {
@@ -209,6 +309,8 @@ const NotificationDropdown = () => {
       navigate('/app/upi');
     } else if (item.category === 'wallet' || item.category === 'payment') {
       navigate('/app/wallet');
+    } else if (item.category === 'kyc') {
+      navigate('/app/kyc');
     } else if (item.category === 'security') {
       navigate('/app/profile');
     }
@@ -254,8 +356,9 @@ const NotificationDropdown = () => {
       </button>
 
       {/* Dropdown Panel */}
-      {isOpen && (
-        <div className="notification-panel">
+      {isOpen && (() => {
+        const panelNode = (
+          <div className="notification-panel" ref={panelRef}>
           {/* Header */}
           <div className="notification-panel-header">
             <div className="notification-panel-title-wrap">
@@ -348,6 +451,48 @@ const NotificationDropdown = () => {
               </div>
             ) : filter === 'preferences' ? (
               <div className="notification-preferences-list">
+                <div style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#00D5FF', marginBottom: '4px' }}>
+                  Voice &amp; Soundbox Alerts
+                </div>
+                <div className="notification-pref-item" style={{ marginBottom: '10px', gap: '8px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <span className="notification-pref-label">Voice Notification Alerts</span>
+                    <span style={{ fontSize: '10.5px', color: '#8BA2C1' }}>
+                      Speaks alert aloud when new notification arrives
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const prev = voiceEnabledRef.current;
+                        voiceEnabledRef.current = true;
+                        playNotificationVoice('ApnaPay Voice Alerts Active', 'You will hear instant voice alerts for new notifications.');
+                        voiceEnabledRef.current = prev;
+                      }}
+                      style={{
+                        background: 'rgba(0, 168, 255, 0.14)',
+                        border: '1px solid rgba(0, 168, 255, 0.35)',
+                        color: '#00D5FF',
+                        fontSize: '10.5px',
+                        fontWeight: '700',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Test Voice
+                    </button>
+                    <input
+                      type="checkbox"
+                      checked={voiceEnabled}
+                      onChange={(e) => setVoiceEnabled(e.target.checked)}
+                      style={{ accentColor: '#00E599', width: '16px', height: '16px', cursor: 'pointer' }}
+                      aria-label="Enable voice notifications"
+                    />
+                  </div>
+                </div>
+
                 <div style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#00D5FF', marginBottom: '4px' }}>
                   Active Notification Subscriptions
                 </div>
@@ -514,7 +659,26 @@ const NotificationDropdown = () => {
             <span>Real-time alerts</span>
           </div>
         </div>
-      )}
+        );
+
+        return isMobileView
+          ? createPortal(
+              <>
+                <div
+                  onClick={() => setIsOpen(false)}
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    background: 'rgba(3, 7, 18, 0.65)',
+                    zIndex: 9999
+                  }}
+                />
+                {panelNode}
+              </>,
+              document.body
+            )
+          : panelNode;
+      })()}
     </div>
   );
 };

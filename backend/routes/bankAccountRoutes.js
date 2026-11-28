@@ -27,5 +27,11 @@ router.patch('/:id/primary', bankAccountController.setPrimaryAccount);
 router.put('/:id/primary', bankAccountController.setPrimaryAccount);
 router.post('/:id/primary', bankAccountController.setPrimaryAccount);
 
+// 7. POST /bank-accounts/:id/upi-pin - Set / update UPI PIN
+router.post('/:id/upi-pin', bankAccountController.setUpiPin);
+
+// 8. POST /bank-accounts/:id/check-balance - Verify UPI PIN & fetch bank balance
+router.post('/:id/check-balance', bankAccountController.checkBalance);
+
 module.exports = router;
 

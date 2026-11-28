@@ -16,4 +16,7 @@ router.post('/handles', upiController.createUpiHandle);
 // 3. DELETE /upi/handles/:id - Delete UPI handle
 router.delete('/handles/:id', upiController.deleteUpiHandle);
 
+// 4. PATCH /upi/handles/:id/primary - Set default UPI handle
+router.patch('/handles/:id/primary', upiController.setPrimaryUpiHandle);
+
 module.exports = router;

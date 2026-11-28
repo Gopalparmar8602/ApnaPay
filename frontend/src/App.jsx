@@ -29,6 +29,8 @@ import Payments from './pages/payments/Payments';
 import UserKycCenter from './pages/customer/UserKycCenter';
 import UserDisputeCenter from './pages/customer/UserDisputeCenter';
 import RechargeManagement from './pages/RechargeManagement';
+import CustomerRechargePage from './pages/customer/CustomerRechargePage';
+import CustomerSipPage from './pages/customer/CustomerSipPage';
 import SipManagement from './pages/SipManagement';
 import QrManagement from './pages/QrManagement';
 import Dashboard from './pages/Dashboard';
@@ -215,23 +217,11 @@ function App() {
               {/* Manshi Customer Feature Routes Wrapped in DashboardLayout */}
               <Route
                 path="/app/transfers"
-                element={
-                  <ProtectedRoute>
-                    <DashboardLayout title="Money Transfers" subtitle="Instant 24x7 P2P & IMPS Bank Settlements">
-                      <MoneyTransfers />
-                    </DashboardLayout>
-                  </ProtectedRoute>
-                }
+                element={<Navigate to="/app/wallet" replace />}
               />
               <Route
                 path="/app/payments"
-                element={
-                  <ProtectedRoute>
-                    <DashboardLayout title="Payments" subtitle="Online Payment Gateway & Merchant Checkouts">
-                      <Payments />
-                    </DashboardLayout>
-                  </ProtectedRoute>
-                }
+                element={<Navigate to="/app/wallet" replace />}
               />
               <Route
                 path="/app/kyc"
@@ -257,8 +247,8 @@ function App() {
                 path="/app/recharge"
                 element={
                   <ProtectedRoute>
-                    <DashboardLayout title="Mobile Recharge" subtitle="Prepaid & Postpaid Recharge Plans & Operators">
-                      <RechargeManagement />
+                    <DashboardLayout title="Mobile Recharge" subtitle="Prepaid & Data Plans across Jio, Airtel, Vi & BSNL">
+                      <CustomerRechargePage />
                     </DashboardLayout>
                   </ProtectedRoute>
                 }
@@ -267,21 +257,15 @@ function App() {
                 path="/app/sip"
                 element={
                   <ProtectedRoute>
-                    <DashboardLayout title="SIP & Wealth Planning" subtitle="Systematic Investment Plans & Mutual Funds">
-                      <SipManagement />
+                    <DashboardLayout title="Mutual Funds & SIP" subtitle="Top CRISP Picks • Start a SIP from ₹100">
+                      <CustomerSipPage />
                     </DashboardLayout>
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="/app/qr"
-                element={
-                  <ProtectedRoute>
-                    <DashboardLayout title="QR Payments" subtitle="Generate & Scan Bharat UPI QR Codes">
-                      <QrManagement />
-                    </DashboardLayout>
-                  </ProtectedRoute>
-                }
+                element={<Navigate to="/app/profile" replace />}
               />
               <Route
                 path="/app/dashboard-v2"

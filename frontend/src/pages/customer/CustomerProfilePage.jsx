@@ -220,6 +220,8 @@ const CustomerProfilePage = () => {
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [receivingMoneyAllowed, setReceivingMoneyAllowed] = useState(true);
+  const [activeQrSlide, setActiveQrSlide] = useState(0); // 0 = Bank UPI QR, 1 = Wallet QR (Demo)
+  const [qrTouchStartX, setQrTouchStartX] = useState(null);
 
   // Feature Toggles (PhonePe Style Settings)
   const [fingerprintEnabled, setFingerprintEnabled] = useState(true);
@@ -527,15 +529,30 @@ const CustomerProfilePage = () => {
           </button>
         </div>
 
-        {/* Carousel Indicator Dots */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', margin: '2px 0' }}>
-          <span style={{ width: '18px', height: '4px', borderRadius: '4px', background: '#00D5FF' }} />
-          <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#1E3A5F' }} />
-          <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#1E3A5F' }} />
+        {/* Carousel Indicator Dots (Slide between Bank UPI QR & ApnaPay Wallet QR) */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', margin: '2px 0' }}>
+          {[0, 1].map((idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => setActiveQrSlide(idx)}
+              aria-label={idx === 0 ? 'Bank UPI QR' : 'ApnaPay Wallet QR'}
+              style={{
+                width: activeQrSlide === idx ? '20px' : '6px',
+                height: '6px',
+                borderRadius: '999px',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                background: activeQrSlide === idx ? (idx === 0 ? '#00D5FF' : '#00E599') : '#1E3A5F'
+              }}
+            />
+          ))}
         </div>
 
         {/* ========================================================= */}
-        {/* 3. HERO PERSONAL QR CODE CARD                            */}
+        {/* 3. HERO PERSONAL QR CODE CARD (SLIDING BANK & WALLET QR) */}
         {/* ========================================================= */}
         <div
           style={{
@@ -545,102 +562,250 @@ const CustomerProfilePage = () => {
             padding: '24px 20px 20px',
             textAlign: 'center',
             boxShadow: '0 12px 32px rgba(0, 0, 0, 0.45)',
-            position: 'relative'
+            position: 'relative',
+            overflow: 'hidden'
+          }}
+          onTouchStart={(e) => setQrTouchStartX(e.touches[0].clientX)}
+          onTouchEnd={(e) => {
+            if (qrTouchStartX === null) return;
+            const diff = qrTouchStartX - e.changedTouches[0].clientX;
+            if (diff > 40 && activeQrSlide < 1) setActiveQrSlide(1);
+            if (diff < -40 && activeQrSlide > 0) setActiveQrSlide(0);
+            setQrTouchStartX(null);
           }}
         >
-          {/* Top Label */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-            <div style={{ fontSize: '11px', fontWeight: '800', color: '#00D5FF', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-              Personal Bharat UPI QR
-            </div>
-            <div style={{ fontSize: '11px', color: '#00E599', fontWeight: '700' }}>
-              ● Instant Settlement
-            </div>
-          </div>
-
-          {/* White Card with Vector QR Code */}
-          <div
-            style={{
-              background: '#FFFFFF',
-              borderRadius: '16px',
-              padding: '16px',
-              maxWidth: '240px',
-              margin: '0 auto 16px',
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)'
-            }}
-          >
-            <PhonePePersonalQr upiId={primaryUpi} name={user?.full_name} />
-          </div>
-
-          {/* Linked Bank Pill (PhonePe Style) */}
-          <div
-            onClick={() => navigate('/app/banks')}
-            style={{
-              background: '#0B1B32',
-              border: '1px solid #1E3A5F',
-              borderRadius: '24px',
-              padding: '8px 16px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '10px',
-              cursor: 'pointer',
-              marginBottom: '16px',
-              transition: 'all 0.15s ease'
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#00A8FF')}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#1E3A5F')}
-          >
-            <div
-              style={{
-                width: '24px',
-                height: '24px',
-                borderRadius: '50%',
-                background: '#087BFF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#FFFFFF'
-              }}
-            >
-              <LandmarkIcon size={12} />
-            </div>
-
-            <span style={{ fontSize: '13px', fontWeight: '700', color: '#FFFFFF' }}>
-              {primaryBankName} •••• {primaryBankLast4}
-            </span>
-
-            <ChevronRightIcon size={14} style={{ color: '#A9BDD7' }} />
-          </div>
-
-          {/* UPI ID Row */}
+          {/* Sliding Track */}
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              marginBottom: '18px'
+              transform: `translateX(-${activeQrSlide * 100}%)`,
+              transition: 'transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)'
             }}
           >
-            <span style={{ fontSize: '12px', color: '#A9BDD7' }}>UPI ID:</span>
-            <span style={{ fontSize: '13.5px', fontWeight: '800', color: '#00D5FF', fontFamily: 'monospace' }}>
-              {primaryUpi}
-            </span>
+            {/* SLIDE 1: PERSONAL BHARAT UPI QR (BANK) */}
+            <div style={{ minWidth: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <div style={{ fontSize: '11px', fontWeight: '800', color: '#00D5FF', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                  Personal Bharat UPI QR
+                </div>
+                <div style={{ fontSize: '11px', color: '#00E599', fontWeight: '700' }}>
+                  ● Instant Settlement
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: '#FFFFFF',
+                  borderRadius: '16px',
+                  padding: '16px',
+                  maxWidth: '240px',
+                  margin: '0 auto 16px',
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)'
+                }}
+              >
+                <PhonePePersonalQr upiId={primaryUpi} name={user?.full_name} />
+              </div>
+
+              <div
+                onClick={() => navigate('/app/banks')}
+                style={{
+                  background: '#0B1B32',
+                  border: '1px solid #1E3A5F',
+                  borderRadius: '24px',
+                  padding: '8px 16px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  cursor: 'pointer',
+                  marginBottom: '16px',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#00A8FF')}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#1E3A5F')}
+              >
+                <div
+                  style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    background: '#087BFF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#FFFFFF'
+                  }}
+                >
+                  <LandmarkIcon size={12} />
+                </div>
+
+                <span style={{ fontSize: '13px', fontWeight: '700', color: '#FFFFFF' }}>
+                  {primaryBankName} •••• {primaryBankLast4}
+                </span>
+
+                <ChevronRightIcon size={14} style={{ color: '#A9BDD7' }} />
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  marginBottom: '18px'
+                }}
+              >
+                <span style={{ fontSize: '12px', color: '#A9BDD7' }}>UPI ID:</span>
+                <span style={{ fontSize: '13.5px', fontWeight: '800', color: '#00D5FF', fontFamily: 'monospace' }}>
+                  {primaryUpi}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopyUpi(primaryUpi)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: copiedUpi ? '#00E599' : '#00A8FF',
+                    cursor: 'pointer',
+                    padding: '3px',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                  title="Copy UPI ID"
+                >
+                  {copiedUpi ? <CheckIcon size={16} /> : <CopyIcon size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {/* SLIDE 2: APNAPAY WALLET QR (DEMO) */}
+            <div style={{ minWidth: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <div style={{ fontSize: '11px', fontWeight: '800', color: '#00E599', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                  ApnaPay Wallet QR (Demo)
+                </div>
+                <div style={{ fontSize: '11px', color: '#00D5FF', fontWeight: '700' }}>
+                  ● Balance: {walletBalance}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: '#FFFFFF',
+                  borderRadius: '16px',
+                  padding: '16px',
+                  maxWidth: '240px',
+                  margin: '0 auto 16px',
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)'
+                }}
+              >
+                <PhonePePersonalQr upiId={`${userPhone}.wallet@apnapay`} name={user?.full_name} />
+              </div>
+
+              <div
+                onClick={() => navigate('/app/wallet')}
+                style={{
+                  background: '#0B1B32',
+                  border: '1px solid rgba(0, 229, 153, 0.35)',
+                  borderRadius: '24px',
+                  padding: '8px 16px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  cursor: 'pointer',
+                  marginBottom: '16px',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#00E599')}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(0, 229, 153, 0.35)')}
+              >
+                <div
+                  style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    background: '#059669',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#FFFFFF'
+                  }}
+                >
+                  <WalletIcon size={12} />
+                </div>
+
+                <span style={{ fontSize: '13px', fontWeight: '700', color: '#FFFFFF' }}>
+                  ApnaPay Wallet
+                </span>
+
+                <ChevronRightIcon size={14} style={{ color: '#00E599' }} />
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  marginBottom: '18px'
+                }}
+              >
+                <span style={{ fontSize: '12px', color: '#A9BDD7' }}>Wallet ID:</span>
+                <span style={{ fontSize: '13.5px', fontWeight: '800', color: '#00E599', fontFamily: 'monospace' }}>
+                  {userPhone}.wallet@apnapay
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopyUpi(`${userPhone}.wallet@apnapay`)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: copiedUpi ? '#00E599' : '#00A8FF',
+                    cursor: 'pointer',
+                    padding: '3px',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                  title="Copy Wallet ID"
+                >
+                  {copiedUpi ? <CheckIcon size={16} /> : <CopyIcon size={16} />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Slide Switcher Row */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '14px' }}>
             <button
               type="button"
-              onClick={() => handleCopyUpi(primaryUpi)}
+              onClick={() => setActiveQrSlide(0)}
               style={{
-                background: 'transparent',
-                border: 'none',
-                color: copiedUpi ? '#00E599' : '#00A8FF',
-                cursor: 'pointer',
-                padding: '3px',
-                display: 'flex',
-                alignItems: 'center'
+                padding: '4px 12px',
+                borderRadius: '999px',
+                border: activeQrSlide === 0 ? '1px solid #00D5FF' : '1px solid #17385D',
+                background: activeQrSlide === 0 ? 'rgba(0, 213, 255, 0.14)' : '#0B1B32',
+                color: activeQrSlide === 0 ? '#00D5FF' : '#A9BDD7',
+                fontSize: '11.5px',
+                fontWeight: '700',
+                cursor: 'pointer'
               }}
-              title="Copy UPI ID"
             >
-              {copiedUpi ? <CheckIcon size={16} /> : <CopyIcon size={16} />}
+              Bank QR
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveQrSlide(1)}
+              style={{
+                padding: '4px 12px',
+                borderRadius: '999px',
+                border: activeQrSlide === 1 ? '1px solid #00E599' : '1px solid #17385D',
+                background: activeQrSlide === 1 ? 'rgba(0, 229, 153, 0.14)' : '#0B1B32',
+                color: activeQrSlide === 1 ? '#00E599' : '#A9BDD7',
+                fontSize: '11.5px',
+                fontWeight: '700',
+                cursor: 'pointer'
+              }}
+            >
+              Wallet QR
             </button>
           </div>
 

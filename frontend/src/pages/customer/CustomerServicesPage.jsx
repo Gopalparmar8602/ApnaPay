@@ -254,7 +254,6 @@ const CustomerServicesPage = () => {
       badge: 'Zero Fee',
       badgeColor: 'cyan',
       actions: [
-        { label: 'QR Payments Center', onClick: () => navigate('/app/qr') },
         { label: 'Scan Camera', onClick: () => setScanPayModalOpen(true) },
         { label: 'My QR Code', onClick: () => setQrModalOpen(true) }
       ]

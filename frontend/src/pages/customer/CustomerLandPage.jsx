@@ -37,11 +37,24 @@ const CustomerLandPage = () => {
 
   // Purchase Modal State
   const [selectedProject, setSelectedProject] = useState(null);
+  const [orderModalStep, setOrderModalStep] = useState('details'); // 'details' | 'confirm'
   const [orderUnits, setOrderUnits] = useState(1);
   const [orderNotes, setOrderNotes] = useState('');
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderSuccessData, setOrderSuccessData] = useState(null);
   const [orderError, setOrderError] = useState('');
+
+  // Orders Filter State
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all');
+
+  // Demo Exit Request States
+  const [exitRequests, setExitRequests] = useState([]);
+  const [exitModalHolding, setExitModalHolding] = useState(null);
+  const [exitUnits, setExitUnits] = useState('');
+  const [exitNotes, setExitNotes] = useState('');
+  const [exitSubmitting, setExitSubmitting] = useState(false);
+  const [exitError, setExitError] = useState('');
+  const [exitBannerMsg, setExitBannerMsg] = useState('');
 
   // Order Details Modal
   const [viewingOrder, setViewingOrder] = useState(null);
@@ -61,12 +74,22 @@ const CustomerLandPage = () => {
     }
   };
 
-  // Load User Holdings
+  // Load User Holdings & Demo Exit Requests
   const loadHoldings = async () => {
     setLoading(true);
     try {
-      const res = await landService.getHoldings({ page: 1, limit: 20 });
-      setHoldingsData(res.data || { holdings: [], portfolioSummary: {} });
+      const [holdRes, exitRes] = await Promise.allSettled([
+        landService.getHoldings({ page: 1, limit: 20 }),
+        landService.getUserExitRequests()
+      ]);
+      if (holdRes.status === 'fulfilled') {
+        setHoldingsData(holdRes.value?.data || { holdings: [], portfolioSummary: {} });
+      } else {
+        setErrorMsg(holdRes.reason?.response?.data?.message || 'Failed to load holdings.');
+      }
+      if (exitRes.status === 'fulfilled') {
+        setExitRequests(exitRes.value?.data || []);
+      }
     } catch (err) {
       setErrorMsg(err.response?.data?.message || 'Failed to load holdings.');
     } finally {
@@ -144,10 +167,45 @@ const CustomerLandPage = () => {
   // Open Order Modal
   const handleOpenOrderModal = (project) => {
     setSelectedProject(project);
+    setOrderModalStep('details');
     setOrderUnits(1);
     setOrderNotes('');
     setOrderError('');
     setOrderSuccessData(null);
+  };
+
+  // Submit Demo Exit Request
+  const handleSubmitExitRequest = async (e) => {
+    e.preventDefault();
+    if (!exitModalHolding || exitSubmitting) return;
+
+    const units = parseFloat(exitUnits);
+    const maxUnits = parseFloat(exitModalHolding.unitsOwned) || 0;
+    if (!units || isNaN(units) || units <= 0) {
+      setExitError('Exit quantity must be greater than zero.');
+      return;
+    }
+    if (units > maxUnits) {
+      setExitError(`Exit quantity cannot exceed your owned ${maxUnits} ${exitModalHolding.unitName}.`);
+      return;
+    }
+
+    setExitSubmitting(true);
+    setExitError('');
+    try {
+      const res = await landService.createExitRequest({
+        holdingId: exitModalHolding.id,
+        units,
+        notes: exitNotes
+      });
+      setExitBannerMsg(res?.message || 'Demo exit request submitted for admin review.');
+      setExitModalHolding(null);
+      await loadHoldings();
+    } catch (err) {
+      setExitError(err?.response?.data?.message || 'Failed to submit exit request.');
+    } finally {
+      setExitSubmitting(false);
+    }
   };
 
   // Submit Land Purchase Order
@@ -531,9 +589,114 @@ const CustomerLandPage = () => {
                         {h.formattedGainLoss || formatINR(h.unrealizedGainLoss)} ({h.gainLossPercentage}%)
                       </div>
                     </div>
+
+                    {parseFloat(h.unitsOwned) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExitModalHolding(h);
+                          setExitUnits(String(h.unitsOwned));
+                          setExitNotes('');
+                          setExitError('');
+                        }}
+                        style={{
+                          padding: '7px 12px',
+                          borderRadius: '8px',
+                          background: 'rgba(245, 158, 11, 0.14)',
+                          border: '1px solid rgba(245, 158, 11, 0.35)',
+                          color: '#F59E0B',
+                          fontSize: '12px',
+                          fontWeight: '700',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Request Exit (Demo)
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {exitBannerMsg && (
+            <div className="auth-alert success" style={{ marginTop: '16px' }}>
+              <CheckCircleIcon size={16} />
+              <span>{exitBannerMsg}</span>
+            </div>
+          )}
+
+          {/* User Demo Exit Requests Status List */}
+          {exitRequests.length > 0 && (
+            <div className="dashboard-card" style={{ marginTop: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                <h4 style={{ fontSize: '15px', fontWeight: '700', color: '#FFFFFF', margin: 0 }}>
+                  Demo Exit Requests ({exitRequests.length})
+                </h4>
+                <span style={{ fontSize: '11px', color: '#A9BDD7' }}>Demo mode — no real payouts executed</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {exitRequests.map((ex) => {
+                  const st = String(ex.status || 'exit_pending').toLowerCase();
+                  const label =
+                    st === 'exit_completed'
+                      ? 'Exit Completed'
+                      : st === 'exit_approved'
+                        ? 'Exit Approved'
+                        : st === 'exit_rejected'
+                          ? 'Exit Rejected'
+                          : 'Exit Pending';
+                  const color =
+                    st === 'exit_completed' || st === 'exit_approved'
+                      ? '#10B981'
+                      : st === 'exit_rejected'
+                        ? '#EF4444'
+                        : '#F59E0B';
+                  return (
+                    <div
+                      key={ex.id}
+                      style={{
+                        background: '#071426',
+                        border: '1px solid #17385D',
+                        borderRadius: '10px',
+                        padding: '12px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '10px'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '13.5px', fontWeight: '700', color: '#FFFFFF' }}>
+                          {ex.projectName} • <span style={{ color: '#00D5FF', fontFamily: 'monospace', fontSize: '12px' }}>{ex.exitReference}</span>
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#A9BDD7', marginTop: '2px' }}>
+                          Exit Units: {ex.unitsRequested} {ex.unitName} • Est. Demo Value: {formatINR(ex.estimatedValue)}
+                        </div>
+                        {ex.rejectionReason && (
+                          <div style={{ fontSize: '11.5px', color: '#EF4444', marginTop: '4px' }}>
+                            Reason: {ex.rejectionReason}
+                          </div>
+                        )}
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: '700',
+                          color,
+                          background: 'rgba(255,255,255,0.05)',
+                          border: `1px solid ${color}`,
+                          padding: '3px 10px',
+                          borderRadius: '999px'
+                        }}
+                      >
+                        {label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -544,16 +707,35 @@ const CustomerLandPage = () => {
       {/* ======================================================== */}
       {activeTab === 'transactions' && (
         <div className="dashboard-card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <HistoryIcon size={18} style={{ color: '#00A8FF' }} />
               <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#FFFFFF', margin: 0 }}>
-                Land Orders & Approval Activity Log
+                Land Orders &amp; Approval Activity Log
               </h3>
             </div>
-            <span style={{ fontSize: '12px', color: '#A9BDD7' }}>
-              Total: {transactions.length} orders
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {['all', 'pending', 'approved', 'rejected'].map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setOrderStatusFilter(st)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '999px',
+                    border: orderStatusFilter === st ? '1px solid #00D5FF' : '1px solid #17385D',
+                    background: orderStatusFilter === st ? 'rgba(0, 213, 255, 0.14)' : '#071426',
+                    color: orderStatusFilter === st ? '#00D5FF' : '#A9BDD7',
+                    fontSize: '11.5px',
+                    fontWeight: '700',
+                    textTransform: 'capitalize',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
           </div>
 
           {loading ? (
@@ -582,7 +764,9 @@ const CustomerLandPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((t) => {
+                  {transactions
+                    .filter((t) => orderStatusFilter === 'all' || String(t.status || '').toLowerCase() === orderStatusFilter)
+                    .map((t) => {
                     const st = String(t.status || 'pending').toLowerCase();
                     const isApproved = st === 'approved' || st === 'completed';
                     const isRejected = st === 'rejected' || st === 'failed';
@@ -669,16 +853,15 @@ const CustomerLandPage = () => {
       {/* ======================================================== */}
       {activeTab === 'valuations' && (
         <div className="dashboard-card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <TrendingUpIcon size={18} style={{ color: '#10B981' }} />
               <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#FFFFFF', margin: 0 }}>
-                Official Property Valuations & Growth Audits
+                Demo Valuation History &amp; Tracking
               </h3>
             </div>
-            <span style={{ fontSize: '12px', color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <CheckCircleIcon size={14} />
-              Third-Party Certified
+            <span style={{ fontSize: '11.5px', color: '#00D5FF', background: 'rgba(0, 213, 255, 0.12)', border: '1px solid rgba(0, 213, 255, 0.3)', padding: '3px 10px', borderRadius: '999px', fontWeight: '700' }}>
+              Demo Valuation (No Guaranteed Returns)
             </span>
           </div>
 
@@ -821,7 +1004,7 @@ const CustomerLandPage = () => {
                   </button>
                 </div>
               </div>
-            ) : (
+            ) : orderModalStep === 'confirm' ? (
               <form onSubmit={handleCreateOrder}>
                 <div className="modal-body">
                   {orderError && (
@@ -831,24 +1014,137 @@ const CustomerLandPage = () => {
                     </div>
                   )}
 
-                  {/* Project Info Pill */}
-                  <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '10px', padding: '12px 14px', marginBottom: '16px' }}>
-                    <div style={{ fontSize: '15px', fontWeight: '700', color: '#FFFFFF' }}>
-                      {selectedProject.projectName}
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#00D5FF', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '10px' }}>
+                    Confirm Demo Investment Order
+                  </div>
+
+                  <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '10px', padding: '14px', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#A9BDD7' }}>Project:</span>
+                      <span style={{ color: '#FFFFFF', fontWeight: '700' }}>{selectedProject.projectName}</span>
                     </div>
-                    <div style={{ fontSize: '12px', color: '#A9BDD7', marginTop: '2px' }}>
-                      {selectedProject.location} • Available: {selectedProject.availableUnits} {selectedProject.unitName}
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#A9BDD7' }}>Location:</span>
+                      <span style={{ color: '#FFFFFF' }}>{selectedProject.location}</span>
                     </div>
-                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#10B981', marginTop: '6px' }}>
-                      {selectedProject.formattedPricePerUnit || `${formatINR(selectedProject.pricePerUnit)} / ${selectedProject.unitName}`}
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#A9BDD7' }}>Selected Quantity:</span>
+                      <span style={{ color: '#FFFFFF', fontWeight: '700' }}>{parseFloat(orderUnits) || 0} {selectedProject.unitName}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#A9BDD7' }}>Unit Price:</span>
+                      <span style={{ color: '#FFFFFF' }}>{formatINR(selectedProject.pricePerUnit)} / {selectedProject.unitName}</span>
+                    </div>
+                    <div style={{ borderTop: '1px solid #17385D', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: '#A9BDD7', fontWeight: '600' }}>Estimated Total:</span>
+                      <span style={{ color: '#10B981', fontSize: '17px', fontWeight: '800' }}>
+                        {formatINR((parseFloat(orderUnits) || 0) * (selectedProject.pricePerUnit || 0))}
+                      </span>
                     </div>
                   </div>
 
-                  {/* Units Input */}
+                  <div style={{ background: 'rgba(0, 168, 255, 0.08)', border: '1px solid rgba(0, 168, 255, 0.25)', borderRadius: '8px', padding: '10px 12px', marginTop: '14px', fontSize: '11.5px', color: '#A9BDD7', lineHeight: '1.45' }}>
+                    <strong style={{ color: '#FFFFFF' }}>Demo Investment Notice:</strong> No real money is debited and no real land ownership is created. Order will enter <strong>Pending Approval</strong> status until reviewed by Admin.
+                  </div>
+                </div>
+
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    onClick={() => setOrderModalStep('details')}
+                    className="auth-button secondary"
+                    style={{ width: 'auto', padding: '0 16px', height: '38px', fontSize: '13px', margin: 0 }}
+                    disabled={orderSubmitting}
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={orderSubmitting}
+                    className="auth-button"
+                    style={{ width: 'auto', padding: '0 20px', height: '38px', fontSize: '13px', margin: 0 }}
+                  >
+                    {orderSubmitting ? 'Submitting Order...' : 'Confirm & Submit Order'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div>
+                <div className="modal-body">
+                  {orderError && (
+                    <div className="auth-alert error" style={{ marginBottom: '14px' }}>
+                      <AlertCircleIcon size={16} />
+                      <span>{orderError}</span>
+                    </div>
+                  )}
+
+                  {/* Project Details Section */}
+                  <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '10px', padding: '14px', marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '15.5px', fontWeight: '800', color: '#FFFFFF' }}>
+                          {selectedProject.projectName}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#A9BDD7', marginTop: '2px' }}>
+                          {selectedProject.location}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '10px', fontWeight: '700', color: '#10B981', background: 'rgba(16, 185, 129, 0.14)', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' }}>
+                        {selectedProject.status}
+                      </span>
+                    </div>
+                    {selectedProject.description && (
+                      <p style={{ fontSize: '12px', color: '#A9BDD7', margin: '8px 0', lineHeight: '1.45' }}>
+                        {selectedProject.description}
+                      </p>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #17385D' }}>
+                      <div>
+                        <div style={{ fontSize: '10.5px', color: '#6B87A8' }}>Price / {selectedProject.unitName}</div>
+                        <div style={{ fontSize: '13.5px', fontWeight: '800', color: '#10B981' }}>{formatINR(selectedProject.pricePerUnit)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10.5px', color: '#6B87A8' }}>Available</div>
+                        <div style={{ fontSize: '13.5px', fontWeight: '700', color: '#FFFFFF' }}>{selectedProject.availableUnits} {selectedProject.unitName}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10.5px', color: '#6B87A8' }}>Total Project</div>
+                        <div style={{ fontSize: '13.5px', fontWeight: '700', color: '#A9BDD7' }}>{selectedProject.totalUnits} {selectedProject.unitName}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Demo Investment Calculator */}
                   <div className="form-group">
-                    <label className="form-label">
-                      Number of Units to Purchase ({selectedProject.unitName})
-                    </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label className="form-label" style={{ margin: 0 }}>
+                        Demo Investment Calculator ({selectedProject.unitName})
+                      </label>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {[1, 5, 10].filter((q) => q <= selectedProject.availableUnits).map((q) => (
+                          <button
+                            key={q}
+                            type="button"
+                            onClick={() => {
+                              setOrderUnits(q);
+                              setOrderError('');
+                            }}
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              border: Number(orderUnits) === q ? '1px solid #00D5FF' : '1px solid #17385D',
+                              background: Number(orderUnits) === q ? 'rgba(0, 213, 255, 0.14)' : '#071426',
+                              color: Number(orderUnits) === q ? '#00D5FF' : '#A9BDD7',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {q} {selectedProject.unitName}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <input
                       type="number"
                       step="0.01"
@@ -856,21 +1152,31 @@ const CustomerLandPage = () => {
                       max={selectedProject.availableUnits}
                       required
                       value={orderUnits}
-                      onChange={(e) => setOrderUnits(e.target.value)}
+                      onChange={(e) => {
+                        setOrderUnits(e.target.value);
+                        if (orderError) setOrderError('');
+                      }}
                       className="form-input"
                       placeholder="e.g. 1.5"
                     />
                   </div>
 
-                  {/* Estimated Amount Calculation */}
-                  <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '8px', padding: '12px 14px', margin: '16px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: '#A9BDD7', fontSize: '13px' }}>Estimated Total:</span>
-                    <span style={{ color: '#10B981', fontSize: '18px', fontWeight: '800' }}>
-                      {formatINR((parseFloat(orderUnits) || 0) * (selectedProject.pricePerUnit || 0))}
-                    </span>
+                  {/* Calculated Summary */}
+                  <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '8px', padding: '12px 14px', margin: '12px 0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: '#A9BDD7', fontSize: '13px' }}>Estimated Total Investment:</span>
+                      <span style={{ color: '#10B981', fontSize: '18px', fontWeight: '800' }}>
+                        {formatINR((parseFloat(orderUnits) || 0) * (selectedProject.pricePerUnit || 0))}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: '#6B87A8' }}>
+                      <span>Remaining Availability (after approval):</span>
+                      <span style={{ color: '#A9BDD7', fontWeight: '600' }}>
+                        {Math.max(0, Number(((selectedProject.availableUnits || 0) - (parseFloat(orderUnits) || 0)).toFixed(2)))} {selectedProject.unitName}
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Optional Notes */}
                   <div className="form-group">
                     <label className="form-label">Order Notes (Optional)</label>
                     <input
@@ -878,9 +1184,13 @@ const CustomerLandPage = () => {
                       value={orderNotes}
                       onChange={(e) => setOrderNotes(e.target.value)}
                       className="form-input"
-                      placeholder="e.g. Investment parcel allocation"
+                      placeholder="e.g. Demo parcel allocation"
                       maxLength={150}
                     />
+                  </div>
+
+                  <div style={{ fontSize: '11px', color: '#6B87A8', marginTop: '6px' }}>
+                    Demo disclaimer: Simulated investment tracking only — does not represent real land ownership.
                   </div>
                 </div>
 
@@ -894,16 +1204,135 @@ const CustomerLandPage = () => {
                     Cancel
                   </button>
                   <button
-                    type="submit"
-                    disabled={orderSubmitting}
+                    type="button"
+                    onClick={() => {
+                      const units = parseFloat(orderUnits);
+                      if (!units || isNaN(units) || units <= 0) {
+                        setOrderError('Quantity must be greater than zero.');
+                        return;
+                      }
+                      if (units > selectedProject.availableUnits) {
+                        setOrderError(`Only ${selectedProject.availableUnits} ${selectedProject.unitName} available.`);
+                        return;
+                      }
+                      setOrderError('');
+                      setOrderModalStep('confirm');
+                    }}
                     className="auth-button"
                     style={{ width: 'auto', padding: '0 20px', height: '38px', fontSize: '13px', margin: 0 }}
                   >
-                    {orderSubmitting ? 'Creating Order...' : 'Confirm Order'}
+                    Review &amp; Confirm Order →
                   </button>
                 </div>
-              </form>
+              </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* DEMO EXIT REQUEST MODAL                                  */}
+      {/* ======================================================== */}
+      {exitModalHolding && (
+        <div className="modal-overlay" onClick={() => !exitSubmitting && setExitModalHolding(null)}>
+          <div className="modal-content" style={{ maxWidth: '450px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <LayersIcon size={18} style={{ color: '#F59E0B' }} />
+                <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#FFFFFF', margin: 0 }}>
+                  Request Demo Exit
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !exitSubmitting && setExitModalHolding(null)}
+                style={{ background: 'transparent', border: 'none', color: '#A9BDD7', cursor: 'pointer' }}
+              >
+                <XIcon size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitExitRequest}>
+              <div className="modal-body">
+                {exitError && (
+                  <div className="auth-alert error" style={{ marginBottom: '14px' }}>
+                    <AlertCircleIcon size={16} />
+                    <span>{exitError}</span>
+                  </div>
+                )}
+
+                <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '10px', padding: '12px 14px', marginBottom: '14px' }}>
+                  <div style={{ fontSize: '14.5px', fontWeight: '700', color: '#FFFFFF' }}>
+                    {exitModalHolding.projectName}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#A9BDD7', marginTop: '2px' }}>
+                    Owned: <strong>{exitModalHolding.unitsOwned} {exitModalHolding.unitName}</strong> • Avg Price: {formatINR(exitModalHolding.averagePurchasePrice)}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">
+                    Exit Quantity ({exitModalHolding.unitName})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={exitModalHolding.unitsOwned}
+                    required
+                    value={exitUnits}
+                    onChange={(e) => {
+                      setExitUnits(e.target.value);
+                      if (exitError) setExitError('');
+                    }}
+                    className="form-input"
+                  />
+                </div>
+
+                <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '8px', padding: '12px 14px', margin: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#A9BDD7', fontSize: '12.5px' }}>Estimated Demo Exit Value:</span>
+                  <span style={{ color: '#F59E0B', fontSize: '16px', fontWeight: '800' }}>
+                    {formatINR((parseFloat(exitUnits) || 0) * (parseFloat(exitModalHolding.currentPricePerUnit || exitModalHolding.averagePurchasePrice) || 0))}
+                  </span>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Notes (Optional)</label>
+                  <input
+                    type="text"
+                    value={exitNotes}
+                    onChange={(e) => setExitNotes(e.target.value)}
+                    className="form-input"
+                    placeholder="e.g. Partial demo exit request"
+                    maxLength={150}
+                  />
+                </div>
+
+                <div style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: '8px', padding: '10px 12px', marginTop: '10px', fontSize: '11.5px', color: '#fbbf24' }}>
+                  <strong>Demo Notice:</strong> Submitting an exit request marks units for admin review. No real payout or bank transfer is executed.
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  onClick={() => setExitModalHolding(null)}
+                  className="auth-button secondary"
+                  style={{ width: 'auto', padding: '0 16px', height: '38px', fontSize: '13px', margin: 0 }}
+                  disabled={exitSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={exitSubmitting}
+                  className="auth-button"
+                  style={{ width: 'auto', padding: '0 20px', height: '38px', fontSize: '13px', margin: 0 }}
+                >
+                  {exitSubmitting ? 'Submitting...' : 'Submit Exit Request'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

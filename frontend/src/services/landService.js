@@ -108,6 +108,41 @@ const landService = {
   rejectOrder: async (id, reason) => {
     const response = await api.post(`/land/admin/orders/${id}/reject`, { reason });
     return response.data;
+  },
+
+  // ==========================================
+  // DEMO EXIT REQUEST METHODS
+  // ==========================================
+  createExitRequest: async (payload) => {
+    const response = await api.post('/land/exits', payload);
+    return response.data;
+  },
+
+  getUserExitRequests: async () => {
+    const response = await api.get('/land/exits');
+    return response.data;
+  },
+
+  getAdminExitRequests: async (params = {}) => {
+    const cleanParams = {};
+    if (params.status && params.status !== 'all') cleanParams.status = params.status;
+    const response = await api.get('/land/admin/exits', { params: cleanParams });
+    return response.data;
+  },
+
+  approveExitRequest: async (id) => {
+    const response = await api.post(`/land/admin/exits/${id}/approve`);
+    return response.data;
+  },
+
+  rejectExitRequest: async (id, reason) => {
+    const response = await api.post(`/land/admin/exits/${id}/reject`, { reason });
+    return response.data;
+  },
+
+  completeExitRequest: async (id) => {
+    const response = await api.post(`/land/admin/exits/${id}/complete`);
+    return response.data;
   }
 };
 

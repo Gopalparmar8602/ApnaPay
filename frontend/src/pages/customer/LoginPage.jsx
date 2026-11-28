@@ -317,6 +317,8 @@ const LoginPage = () => {
   const isPhoneValid = phone.length === 10 && INDIAN_PHONE_REGEX.test(phone);
   const isEmailValid = EMAIL_REGEX.test(email.trim().toLowerCase());
   const isOtpValid = otp.length === 6;
+  const canCheckRemember = isPhoneValid && isEmailValid && isOtpValid;
+  const [rememberHint, setRememberHint] = useState('');
 
   // Validation messages only appear after user interaction/typing
   const phoneSuccess = touched.phone && !errors.phone && isPhoneValid ? 'Valid 10-digit mobile number' : '';
@@ -390,15 +392,40 @@ const LoginPage = () => {
 
         {/* ================= 4. REMEMBER ME CHECKBOX ================= */}
         <div style={{ marginTop: '2px', marginBottom: '14px' }}>
-          <label className="checkbox-label" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <label
+            className="checkbox-label"
+            onClick={(e) => {
+              if (!canCheckRemember) {
+                e.preventDefault();
+                setRememberHint('Please fill valid Phone Number, Email Address & 6-Digit OTP first.');
+              }
+            }}
+            style={{
+              cursor: canCheckRemember ? 'pointer' : 'not-allowed',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              opacity: canCheckRemember ? 1 : 0.65
+            }}
+          >
             <input
               type="checkbox"
-              checked={rememberMe}
-              onChange={(e) => setRememberMe(e.target.checked)}
+              disabled={!canCheckRemember}
+              checked={canCheckRemember && rememberMe}
+              onChange={(e) => {
+                if (!canCheckRemember) return;
+                setRememberHint('');
+                setRememberMe(e.target.checked);
+              }}
             />
             <span className="checkbox-custom" />
             <span style={{ fontSize: '12.5px', color: '#A9BDD7' }}>Remember this device for faster login</span>
           </label>
+          {!canCheckRemember && rememberHint && (
+            <div style={{ fontSize: '11px', color: '#F59E0B', marginTop: '4px' }}>
+              {rememberHint}
+            </div>
+          )}
         </div>
 
         {/* ================= 5. SEND / RESEND OTP BUTTON ================= */}

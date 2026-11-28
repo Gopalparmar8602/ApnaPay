@@ -91,9 +91,9 @@ export default function TransfersFilterBar({
         {/* Universal Search Bar */}
         <div
           style={{
-            flex: "1 1 280px",
+            flex: "1 1 240px",
             position: "relative",
-            minWidth: "240px"
+            minWidth: "min(100%, 220px)"
           }}
         >
           <Search

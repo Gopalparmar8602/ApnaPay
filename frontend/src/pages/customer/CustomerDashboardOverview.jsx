@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import DashboardLayout from '../../components/layout/DashboardLayout';
@@ -100,6 +101,190 @@ const CustomerDashboardOverview = () => {
   const [scanUpiInput, setScanUpiInput] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [balanceRefreshing, setBalanceRefreshing] = useState(false);
+
+  // Check Balance (PhonePe-style flow) states
+  const [checkBalanceStep, setCheckBalanceStep] = useState('list'); // 'list' | 'pin' | 'loading' | 'result'
+  const [selectedBalanceBank, setSelectedBalanceBank] = useState(null);
+  const [upiPinInput, setUpiPinInput] = useState('');
+  const [showUpiPin, setShowUpiPin] = useState(false);
+  const [upiPinError, setUpiPinError] = useState('');
+  const [fetchedBankBalance, setFetchedBankBalance] = useState(null);
+
+  // My QR Carousel state (0 = Bank UPI QR, 1 = ApnaPay Wallet QR)
+  const [activeQrSlide, setActiveQrSlide] = useState(0);
+  const [qrTouchStartX, setQrTouchStartX] = useState(null);
+
+  // Live QR Camera Scanner states & refs
+  const qrVideoRef = useRef(null);
+  const qrStreamRef = useRef(null);
+  const qrFileInputRef = useRef(null);
+  const [cameraStream, setCameraStream] = useState(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [torchOn, setTorchOn] = useState(false);
+  const [scannedPayeeInfo, setScannedPayeeInfo] = useState('');
+
+  const stopQrCamera = useCallback(() => {
+    if (qrStreamRef.current) {
+      qrStreamRef.current.getTracks().forEach((t) => {
+        try { t.stop(); } catch { }
+      });
+      qrStreamRef.current = null;
+    }
+    if (qrVideoRef.current) {
+      qrVideoRef.current.srcObject = null;
+    }
+    setCameraStream(null);
+    setCameraActive(false);
+    setTorchOn(false);
+  }, []);
+
+  const parseScannedQrValue = useCallback((rawValue) => {
+    const val = String(rawValue || '').trim();
+    if (!val) return;
+    if (val.toLowerCase().startsWith('upi://')) {
+      try {
+        const url = new URL(val);
+        const pa = url.searchParams.get('pa') || '';
+        const pn = url.searchParams.get('pn') || '';
+        const am = url.searchParams.get('am') || '';
+        if (pa) setScanUpiInput(pa);
+        if (am && !isNaN(parseFloat(am))) setQuickAmount(String(parseFloat(am)));
+        setScannedPayeeInfo(pn ? `${pn} (${pa})` : pa);
+        showToast(`QR Scanned: ${pn || pa}`);
+        return;
+      } catch { }
+    }
+    setScanUpiInput(val);
+    setScannedPayeeInfo(val);
+    showToast(`QR Scanned: ${val}`);
+  }, []);
+
+  const startQrCamera = useCallback(async () => {
+    setCameraError('');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError('Camera API is not supported in this browser. Use Upload QR or manual UPI ID.');
+      return;
+    }
+    try {
+      stopQrCamera();
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+      qrStreamRef.current = stream;
+      setCameraStream(stream);
+      setCameraActive(true);
+    } catch (err) {
+      const errName = err?.name || '';
+      const errText = err?.message || '';
+      const isSystemDenied = errText.toLowerCase().includes('system');
+      const msg = isSystemDenied
+        ? 'Camera blocked by Windows Privacy Settings. Enable Camera access in Windows Settings → Privacy & Security → Camera, then click Retry.'
+        : errName === 'NotAllowedError' || errName === 'PermissionDeniedError'
+          ? `Camera permission denied (${errText || errName}). Click "Reset permission" in browser address bar or allow camera, then click Retry.`
+          : errName === 'NotFoundError' || errName === 'DevicesNotFoundError'
+            ? 'No camera device found. You can Upload a QR image or enter UPI ID below.'
+            : errName === 'NotReadableError' || errName === 'TrackStartError'
+              ? 'Camera is busy in another app/tab. Close other camera apps and click Retry.'
+              : `Unable to start camera (${errName}: ${errText}). You can Upload a QR image or enter UPI ID below.`;
+      setCameraError(msg);
+      setCameraActive(false);
+    }
+  }, [stopQrCamera]);
+
+  // Attach MediaStream to mounted <video> reliably (even across portal mounts)
+  useEffect(() => {
+    const videoEl = qrVideoRef.current;
+    if (!scanPayModalOpen || !cameraStream || !videoEl) return;
+    videoEl.srcObject = cameraStream;
+    videoEl.play().catch(() => {});
+  }, [scanPayModalOpen, cameraStream]);
+
+  // Start/stop camera automatically when Scan & Pay modal opens/closes
+  useEffect(() => {
+    if (!scanPayModalOpen) {
+      stopQrCamera();
+      setCameraError('');
+      setScannedPayeeInfo('');
+      return;
+    }
+    startQrCamera();
+    return () => {
+      stopQrCamera();
+    };
+  }, [scanPayModalOpen, startQrCamera, stopQrCamera]);
+
+  // Live QR BarcodeDetector loop while camera is active
+  useEffect(() => {
+    if (!scanPayModalOpen || !cameraActive) return;
+    if (typeof window === 'undefined' || !('BarcodeDetector' in window)) return;
+
+    let detector;
+    try {
+      detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    } catch {
+      return;
+    }
+
+    const timer = setInterval(async () => {
+      if (!qrVideoRef.current || qrVideoRef.current.readyState < 2) return;
+      try {
+        const codes = await detector.detect(qrVideoRef.current);
+        if (codes && codes.length > 0 && codes[0].rawValue) {
+          parseScannedQrValue(codes[0].rawValue);
+        }
+      } catch { }
+    }, 400);
+
+    return () => clearInterval(timer);
+  }, [scanPayModalOpen, cameraActive, parseScannedQrValue]);
+
+  const handleToggleTorch = async () => {
+    const track = qrStreamRef.current?.getVideoTracks?.()[0];
+    if (!track) {
+      showToast('Start camera first to toggle torch.');
+      return;
+    }
+    const caps = typeof track.getCapabilities === 'function' ? track.getCapabilities() : {};
+    if (!caps?.torch) {
+      showToast('Torch/flashlight is not supported on this camera.');
+      return;
+    }
+    try {
+      const next = !torchOn;
+      await track.applyConstraints({ advanced: [{ torch: next }] });
+      setTorchOn(next);
+    } catch {
+      showToast('Could not toggle camera torch.');
+    }
+  };
+
+  const handleUploadQrImage = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      try {
+        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+        const bitmap = await createImageBitmap(file);
+        const codes = await detector.detect(bitmap);
+        if (codes && codes.length > 0 && codes[0].rawValue) {
+          parseScannedQrValue(codes[0].rawValue);
+          return;
+        }
+        showToast('No QR code detected in the selected image.');
+        return;
+      } catch { }
+    }
+    showToast('QR image loaded. Enter UPI ID below if auto-decode is unavailable.');
+  };
 
   // SIP Simulator interactive state
   const [sipFrequency, setSipFrequency] = useState('daily'); // 'daily' | 'monthly'
@@ -331,9 +516,10 @@ const CustomerDashboardOverview = () => {
     `${user?.phone || '8602612434'}@apnapay`;
 
   // Primary Bank Account
-  const primaryBank = bankAccounts.find((b) => b.isPrimary) || bankAccounts[0];
-  const primaryBankName = primaryBank?.bankName || primaryBank?.bank_name || 'ICICI Bank';
-  const primaryBankLast4 = primaryBank?.accountNumber ? primaryBank.accountNumber.slice(-4) : (primaryBank?.account_last4 || '9123');
+  const primaryBank = bankAccounts.find((b) => b.isPrimary || b.is_primary) || bankAccounts[0];
+  const primaryBankName = primaryBank?.bankName || primaryBank?.bank_name || 'State Bank of India';
+  const primaryBankLast4 = primaryBank?.accountLast4 || primaryBank?.account_last4 || (primaryBank?.accountNumber ? primaryBank.accountNumber.slice(-4) : (primaryBank?.maskedAccountNumber ? primaryBank.maskedAccountNumber.slice(-4) : '9422'));
+  const walletQrId = `${user?.phone || '8602612434'}.wallet@apnapay`;
 
   const displayName = user?.full_name || 'Customer';
   const rawBalance = walletOverview?.available_balance ?? walletOverview?.balance ?? 5420;
@@ -688,7 +874,14 @@ const CustomerDashboardOverview = () => {
           {/* 4. Check Balance */}
           <button
             type="button"
-            onClick={() => setCheckBalanceModalOpen(true)}
+            onClick={() => {
+              setCheckBalanceStep('list');
+              setSelectedBalanceBank(null);
+              setUpiPinInput('');
+              setUpiPinError('');
+              setFetchedBankBalance(null);
+              setCheckBalanceModalOpen(true);
+            }}
             className="money-transfer-circle-card"
             title="Check wallet ledger balance and linked bank accounts"
           >
@@ -1950,23 +2143,38 @@ const CustomerDashboardOverview = () => {
       )}
 
       {/* ========================================================= */}
-      {/* MODAL 2: PHONEPE-STYLE MY QR MODAL                        */}
+      {/* MODAL 2: PHONEPE-STYLE SLIDING MY QR MODAL (BANK & WALLET)*/}
       {/* ========================================================= */}
-      {qrModalOpen && (
+      {qrModalOpen && createPortal(
         <div
           className="admin-land-modal-overlay"
+          style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
           onClick={() => setQrModalOpen(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
-            className="admin-land-modal-container phonepe-my-qr-box"
+            className="admin-land-modal-container"
+            style={{
+              maxWidth: '410px',
+              width: 'min(410px, calc(100vw - 24px))',
+              padding: '18px 18px 20px',
+              background: '#081426',
+              border: '1px solid #17385D',
+              borderRadius: '18px'
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div style={{ fontSize: '18px', fontWeight: '900', color: '#FFFFFF', letterSpacing: '-0.3px' }}>
-                MY QR
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <QrCodeIcon size={18} style={{ color: '#00D5FF' }} />
+                <span style={{ fontSize: '16px', fontWeight: '800', color: '#FFFFFF', letterSpacing: '-0.2px' }}>
+                  My QR Codes
+                </span>
+                <span style={{ fontSize: '10px', fontWeight: '700', color: '#00D5FF', background: 'rgba(0, 213, 255, 0.12)', border: '1px solid rgba(0, 213, 255, 0.3)', padding: '2px 7px', borderRadius: '999px' }}>
+                  DEMO
+                </span>
               </div>
               <button
                 type="button"
@@ -1978,40 +2186,220 @@ const CustomerDashboardOverview = () => {
               </button>
             </div>
 
-            {/* Linked Bank Pill */}
-            <div className="phonepe-qr-bank-pill">
-              <div className="phonepe-qr-bank-logo">
-                <LandmarkIcon size={13} />
-              </div>
-              <div style={{ fontSize: '13px', fontWeight: '700', color: '#FFFFFF' }}>
-                {primaryBankName} •••• {primaryBankLast4}
-              </div>
+            {/* Quick Toggle Pills (Bank QR vs Wallet QR) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', background: '#050D1B', padding: '4px', borderRadius: '10px', border: '1px solid #17385D', marginBottom: '14px' }}>
+              <button
+                type="button"
+                onClick={() => setActiveQrSlide(0)}
+                style={{
+                  padding: '7px 8px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: activeQrSlide === 0 ? 'linear-gradient(135deg, #087BFF, #00A8FF)' : 'transparent',
+                  color: activeQrSlide === 0 ? '#FFFFFF' : '#A9BDD7',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                Bank Account QR
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveQrSlide(1)}
+                style={{
+                  padding: '7px 8px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: activeQrSlide === 1 ? 'linear-gradient(135deg, #059669, #00E599)' : 'transparent',
+                  color: activeQrSlide === 1 ? '#050D1B' : '#A9BDD7',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                ApnaPay Wallet QR
+              </button>
             </div>
 
-            {/* Crisp QR Code Container with Central ApnaPay Badge */}
-            <div style={{ textAlign: 'center', margin: '10px 0' }}>
-              <div className="phonepe-qr-white-card">
-                <div style={{ width: '200px', height: '200px', background: '#050D1B', borderRadius: '10px', padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                  <QrCodeIcon size={176} style={{ color: '#00D5FF' }} />
-                  {/* Central Logo Badge */}
-                  <div className="phonepe-qr-center-badge">
-                    <span style={{ fontWeight: '900', fontSize: '20px', color: '#00D5FF' }}>A</span>
+            {/* Sliding QR Carousel Viewport */}
+            <div
+              style={{ position: 'relative', overflow: 'hidden', borderRadius: '16px' }}
+              onTouchStart={(e) => setQrTouchStartX(e.touches[0].clientX)}
+              onTouchEnd={(e) => {
+                if (qrTouchStartX === null) return;
+                const diff = qrTouchStartX - e.changedTouches[0].clientX;
+                if (diff > 40 && activeQrSlide < 1) setActiveQrSlide(1);
+                if (diff < -40 && activeQrSlide > 0) setActiveQrSlide(0);
+                setQrTouchStartX(null);
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  transform: `translateX(-${activeQrSlide * 100}%)`,
+                  transition: 'transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)'
+                }}
+              >
+                {/* SLIDE 1: BANK ACCOUNT UPI QR */}
+                <div style={{ minWidth: '100%', padding: '16px 14px', background: '#0B1B32', border: '1px solid #17385D', borderRadius: '16px', textAlign: 'center' }}>
+                  <div style={{ background: '#FFFFFF', borderRadius: '16px', padding: '14px', width: '212px', height: '212px', margin: '0 auto 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)' }}>
+                    <svg viewBox="0 0 100 100" width="184" height="184" aria-label="Bank UPI QR Code">
+                      <rect width="100" height="100" fill="#FFFFFF" />
+                      {/* Finder patterns */}
+                      <rect x="4" y="4" width="24" height="24" rx="3" fill="#050D1B" />
+                      <rect x="8" y="8" width="16" height="16" rx="2" fill="#FFFFFF" />
+                      <rect x="12" y="12" width="8" height="8" rx="1" fill="#050D1B" />
+                      <rect x="72" y="4" width="24" height="24" rx="3" fill="#050D1B" />
+                      <rect x="76" y="8" width="16" height="16" rx="2" fill="#FFFFFF" />
+                      <rect x="80" y="12" width="8" height="8" rx="1" fill="#050D1B" />
+                      <rect x="4" y="72" width="24" height="24" rx="3" fill="#050D1B" />
+                      <rect x="8" y="76" width="16" height="16" rx="2" fill="#FFFFFF" />
+                      <rect x="12" y="80" width="8" height="8" rx="1" fill="#050D1B" />
+                      {/* Dense QR data modules */}
+                      <path fill="#050D1B" d="M34 6h6v6h-6zM44 6h4v10h-4zM52 6h6v6h-6zM62 6h4v6h-4zM34 16h6v4h-6zM54 16h10v4h-10zM34 24h10v4h-10zM50 24h4v8h-4zM60 24h6v4h-6zM6 34h8v4H6zM18 34h10v4H18zM34 34h6v6h-6zM62 34h6v6h-6zM74 34h6v4h-6zM86 34h10v4H86zM8 44h6v6H8zM20 44h8v4h-8zM72 44h8v6h-8zM86 44h6v8h-6zM6 56h10v4H6zM22 56h6v6h-6zM74 56h10v4H74zM90 56h6v6h-6zM34 64h8v6h-8zM58 64h8v4h-8zM72 64h6v6h-6zM84 64h10v6H84zM34 74h4v10h-4zM44 74h8v4h-8zM58 74h6v10h-6zM72 74h8v8h-8zM86 74h10v4H86zM34 88h10v8H34zM50 86h6v10h-6zM68 88h8v8h-8zM82 86h12v10H82z" />
+                    </svg>
+                    {/* Center ApnaPay Badge */}
+                    <div style={{ position: 'absolute', width: '40px', height: '40px', borderRadius: '50%', background: '#050D1B', border: '3px solid #FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.4)' }}>
+                      <span style={{ fontWeight: '900', fontSize: '18px', color: '#00D5FF' }}>A</span>
+                    </div>
                   </div>
+
+                  {/* Bank Label Pill */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQrModalOpen(false);
+                      navigate('/app/banks');
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      background: '#071426',
+                      border: '1px solid #17385D',
+                      borderRadius: '999px',
+                      padding: '6px 14px',
+                      cursor: 'pointer',
+                      color: '#FFFFFF',
+                      fontSize: '13px',
+                      fontWeight: '700'
+                    }}
+                  >
+                    <LandmarkIcon size={14} style={{ color: '#00A8FF' }} />
+                    <span>{primaryBankName} - {primaryBankLast4}</span>
+                    <ChevronRightIcon size={14} style={{ color: '#A9BDD7' }} />
+                  </button>
+                </div>
+
+                {/* SLIDE 2: APNAPAY WALLET QR */}
+                <div style={{ minWidth: '100%', padding: '16px 14px', background: '#0B1B32', border: '1px solid #17385D', borderRadius: '16px', textAlign: 'center' }}>
+                  <div style={{ background: '#FFFFFF', borderRadius: '16px', padding: '14px', width: '212px', height: '212px', margin: '0 auto 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)' }}>
+                    <svg viewBox="0 0 100 100" width="184" height="184" aria-label="ApnaPay Wallet QR Code">
+                      <rect width="100" height="100" fill="#FFFFFF" />
+                      {/* Finder patterns */}
+                      <rect x="4" y="4" width="24" height="24" rx="3" fill="#050D1B" />
+                      <rect x="8" y="8" width="16" height="16" rx="2" fill="#FFFFFF" />
+                      <rect x="12" y="12" width="8" height="8" rx="1" fill="#050D1B" />
+                      <rect x="72" y="4" width="24" height="24" rx="3" fill="#050D1B" />
+                      <rect x="76" y="8" width="16" height="16" rx="2" fill="#FFFFFF" />
+                      <rect x="80" y="12" width="8" height="8" rx="1" fill="#050D1B" />
+                      <rect x="4" y="72" width="24" height="24" rx="3" fill="#050D1B" />
+                      <rect x="8" y="76" width="16" height="16" rx="2" fill="#FFFFFF" />
+                      <rect x="12" y="80" width="8" height="8" rx="1" fill="#050D1B" />
+                      {/* Distinct Wallet QR data modules */}
+                      <path fill="#050D1B" d="M36 6h8v4h-8zM48 6h6v8h-6zM58 6h8v6h-8zM34 14h6v8h-6zM44 18h10v4H44zM60 16h6v8h-6zM36 26h8v4h-8zM50 26h12v4H50zM6 34h10v6H6zM20 34h8v4h-8zM34 34h4v8h-4zM62 34h6v8h-6zM72 34h8v6h-8zM86 34h10v6H86zM10 44h8v8h-8zM22 46h6v4h-6zM74 44h6v8h-6zM86 46h8v6h-8zM6 56h8v6H6zM18 56h10v4H18zM72 56h10v6H72zM88 56h8v4h-8zM34 64h6v6h-6zM46 66h8v4h-8zM60 64h6v8h-6zM74 66h8v4h-8zM86 64h10v6H86zM34 74h10v4H34zM48 74h6v10h-6zM58 76h8v6h-8zM72 74h10v6H72zM88 74h8v10h-8zM34 84h8v12h-8zM48 88h12v8H48zM66 86h8v10h-8zM80 88h14v8H80z" />
+                    </svg>
+                    {/* Center ApnaPay Wallet Badge */}
+                    <div style={{ position: 'absolute', width: '40px', height: '40px', borderRadius: '50%', background: '#050D1B', border: '3px solid #FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.4)' }}>
+                      <span style={{ fontWeight: '900', fontSize: '18px', color: '#00E599' }}>A</span>
+                    </div>
+                  </div>
+
+                  {/* Wallet Label Pill */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQrModalOpen(false);
+                      navigate('/app/wallet');
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      background: '#071426',
+                      border: '1px solid rgba(0, 229, 153, 0.35)',
+                      borderRadius: '999px',
+                      padding: '6px 14px',
+                      cursor: 'pointer',
+                      color: '#FFFFFF',
+                      fontSize: '13px',
+                      fontWeight: '700'
+                    }}
+                  >
+                    <WalletIcon size={14} style={{ color: '#00E599' }} />
+                    <span>ApnaPay Wallet</span>
+                    <ChevronRightIcon size={14} style={{ color: '#00E599' }} />
+                  </button>
                 </div>
               </div>
             </div>
 
-            {/* UPI ID Row with Copy Icon */}
-            <div className="phonepe-qr-vpa-row">
-              <span style={{ fontSize: '12px', color: '#A9BDD7' }}>UPI ID:</span>
-              <span style={{ fontSize: '13px', fontWeight: '700', color: '#00D5FF', fontFamily: 'monospace' }}>
-                {primaryUpi}
+            {/* Slide Controls & Dot Indicators */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px', margin: '12px 0 8px' }}>
+              <button
+                type="button"
+                onClick={() => setActiveQrSlide(0)}
+                disabled={activeQrSlide === 0}
+                style={{ background: 'transparent', border: 'none', color: activeQrSlide === 0 ? '#334155' : '#00D5FF', cursor: activeQrSlide === 0 ? 'default' : 'pointer', padding: '2px', display: 'flex' }}
+                aria-label="Previous QR"
+              >
+                <ArrowLeftIcon size={15} />
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {[0, 1].map((idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setActiveQrSlide(idx)}
+                    aria-label={idx === 0 ? 'Bank Account QR' : 'Wallet QR'}
+                    style={{
+                      width: activeQrSlide === idx ? '18px' : '7px',
+                      height: '7px',
+                      borderRadius: '999px',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      background: activeQrSlide === idx ? '#00D5FF' : '#214C7C'
+                    }}
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveQrSlide(1)}
+                disabled={activeQrSlide === 1}
+                style={{ background: 'transparent', border: 'none', color: activeQrSlide === 1 ? '#334155' : '#00D5FF', cursor: activeQrSlide === 1 ? 'default' : 'pointer', padding: '2px', display: 'flex' }}
+                aria-label="Next QR"
+              >
+                <ArrowRightIcon size={15} />
+              </button>
+            </div>
+
+            {/* Active UPI / Wallet ID Row with Copy Icon */}
+            <div className="phonepe-qr-vpa-row" style={{ marginBottom: '14px' }}>
+              <span style={{ fontSize: '12px', color: '#A9BDD7' }}>
+                {activeQrSlide === 0 ? 'UPI ID:' : 'Wallet ID:'}
+              </span>
+              <span style={{ fontSize: '12.5px', fontWeight: '700', color: activeQrSlide === 0 ? '#00D5FF' : '#00E599', fontFamily: 'monospace' }}>
+                {activeQrSlide === 0 ? primaryUpi : walletQrId}
               </span>
               <button
                 type="button"
-                onClick={() => handleCopyUpi(primaryUpi)}
+                onClick={() => handleCopyUpi(activeQrSlide === 0 ? primaryUpi : walletQrId)}
                 style={{ background: 'transparent', border: 'none', color: '#00E599', cursor: 'pointer', padding: '2px', display: 'flex' }}
-                title="Copy UPI ID"
+                title="Copy ID"
               >
                 {copiedUpi ? <CheckIcon size={15} /> : <CopyIcon size={15} />}
               </button>
@@ -2022,12 +2410,12 @@ const CustomerDashboardOverview = () => {
               <button
                 type="button"
                 onClick={() => {
-                  showToast('QR Code image downloaded to your device!');
+                  showToast(`${activeQrSlide === 0 ? 'Bank UPI' : 'ApnaPay Wallet'} QR Code saved!`);
                 }}
                 className="auth-button secondary"
                 style={{
-                  height: '42px',
-                  borderRadius: '12px',
+                  height: '40px',
+                  borderRadius: '10px',
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -2037,28 +2425,29 @@ const CustomerDashboardOverview = () => {
                   fontWeight: '700'
                 }}
               >
-                <DownloadIcon size={16} />
+                <DownloadIcon size={15} />
                 <span>Download</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => {
+                  const targetId = activeQrSlide === 0 ? primaryUpi : walletQrId;
                   if (navigator.share) {
                     navigator.share({
-                      title: 'My ApnaPay UPI QR',
-                      text: `Pay me via ApnaPay UPI: ${primaryUpi}`,
+                      title: 'My ApnaPay QR',
+                      text: `Pay me via ApnaPay: ${targetId}`,
                       url: window.location.href
                     }).catch(() => {});
                   } else {
-                    handleCopyUpi(primaryUpi);
-                    showToast('Payment link copied to share!');
+                    handleCopyUpi(targetId);
+                    showToast('QR payment ID copied to share!');
                   }
                 }}
                 className="auth-button secondary"
                 style={{
-                  height: '42px',
-                  borderRadius: '12px',
+                  height: '40px',
+                  borderRadius: '10px',
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -2068,34 +2457,45 @@ const CustomerDashboardOverview = () => {
                   fontWeight: '700'
                 }}
               >
-                <ShareIcon size={16} />
+                <ShareIcon size={15} />
                 <span>Share</span>
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ========================================================= */}
-      {/* MODAL 3: CHECK BALANCE MODAL                              */}
+      {/* MODAL 3: CHECK BALANCE MODAL (PHONEPE-STYLE FLOW)         */}
       {/* ========================================================= */}
-      {checkBalanceModalOpen && (
+      {checkBalanceModalOpen && createPortal(
         <div
           className="admin-land-modal-overlay"
+          style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
           onClick={() => setCheckBalanceModalOpen(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
             className="admin-land-modal-container"
-            style={{ maxWidth: '420px' }}
+            style={{ maxWidth: '430px', width: 'min(430px, calc(100vw - 24px))' }}
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Header */}
             <div className="admin-land-modal-header">
               <div className="admin-land-modal-header-title">
                 <button
                   type="button"
-                  onClick={() => setCheckBalanceModalOpen(false)}
+                  onClick={() => {
+                    if (checkBalanceStep === 'pin' || checkBalanceStep === 'result') {
+                      setCheckBalanceStep('list');
+                      setUpiPinInput('');
+                      setUpiPinError('');
+                    } else {
+                      setCheckBalanceModalOpen(false);
+                    }
+                  }}
                   className="modal-corner-back-btn"
                   title="Back"
                   aria-label="Back"
@@ -2104,7 +2504,13 @@ const CustomerDashboardOverview = () => {
                 </button>
                 <CreditCardIcon size={20} style={{ color: '#F59E0B' }} />
                 <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#FFFFFF', margin: 0 }}>
-                  Account & Wallet Balances
+                  {checkBalanceStep === 'pin'
+                    ? 'Enter UPI PIN'
+                    : checkBalanceStep === 'loading'
+                      ? 'Fetching Balance'
+                      : checkBalanceStep === 'result'
+                        ? 'Bank Balance'
+                        : 'Check Balance'}
                 </h3>
               </div>
               <button
@@ -2117,120 +2523,470 @@ const CustomerDashboardOverview = () => {
               </button>
             </div>
 
-            <div className="admin-land-modal-body">
-              {/* Wallet Ledger Balance Card */}
-              <div
-                style={{
-                  background: '#071426',
-                  border: '1px solid #17385D',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(0, 229, 153, 0.15)', color: '#00E599', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <WalletIcon size={20} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '12px', color: '#A9BDD7' }}>ApnaPay Escrow Wallet</div>
-                    <div style={{ fontSize: '18px', fontWeight: '800', color: '#FFFFFF', marginTop: '2px' }}>
-                      {displayWalletBal}
+            <div className="admin-land-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* STEP 1: LIST OF PAYMENT METHODS */}
+              {checkBalanceStep === 'list' && (
+                <>
+                  {/* Promo Banner (Daily SIP / Gold style) */}
+                  <div
+                    onClick={() => {
+                      setCheckBalanceModalOpen(false);
+                      setSipFrequency('daily');
+                      setSipAmount('40');
+                      setSipModalOpen(true);
+                    }}
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(8, 123, 255, 0.28) 0%, rgba(0, 168, 255, 0.14) 100%)',
+                      border: '1px solid rgba(0, 168, 255, 0.35)',
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '13.5px', fontWeight: '800', color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>Build ₹1,200 in 1 month</span>
+                        <ArrowRightIcon size={14} style={{ color: '#00D5FF' }} />
+                      </div>
+                      <div style={{ fontSize: '11.5px', color: '#A9BDD7', marginTop: '2px' }}>
+                        Save ₹40/day in Digital Wealth &amp; SIP
+                      </div>
                     </div>
+                    <div
+                      style={{
+                        width: '38px',
+                        height: '38px',
+                        borderRadius: '10px',
+                        background: 'rgba(245, 158, 11, 0.18)',
+                        color: '#F59E0B',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}
+                    >
+                      <TrendingUpIcon size={18} />
+                    </div>
+                  </div>
+
+                  {/* Linked Bank Accounts */}
+                  <div style={{ fontSize: '11px', fontWeight: '700', color: '#6B87A8', textTransform: 'uppercase', letterSpacing: '0.6px', marginTop: '2px' }}>
+                    Linked Bank Accounts
+                  </div>
+
+                  {bankAccounts.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '2px' }}>
+                      {bankAccounts.map((acct, idx) => {
+                        const bName = acct.bankName || acct.bank_name || 'Linked Bank';
+                        const last4 = acct.accountLast4 || acct.account_last4 || (acct.accountNumber ? acct.accountNumber.slice(-4) : (acct.maskedAccountNumber ? acct.maskedAccountNumber.slice(-4) : '9422'));
+                        return (
+                          <button
+                            key={acct.id || idx}
+                            type="button"
+                            onClick={() => {
+                              setSelectedBalanceBank({ ...acct, displayBankName: bName, displayLast4: last4 });
+                              setUpiPinInput('');
+                              setUpiPinError('');
+                              setCheckBalanceStep('pin');
+                            }}
+                            style={{
+                              width: '100%',
+                              background: '#071426',
+                              border: '1px solid #17385D',
+                              borderRadius: '11px',
+                              padding: '10px 12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '10px',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              transition: 'border-color 0.18s ease',
+                              flexShrink: 0
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#00A8FF')}
+                            onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#17385D')}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                              <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: 'rgba(0, 168, 255, 0.15)', color: '#00A8FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <LandmarkIcon size={18} />
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: '13.5px', fontWeight: '700', color: '#FFFFFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {bName} - {last4}
+                                </div>
+                                <div style={{ fontSize: '11px', color: '#A9BDD7', marginTop: '1px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span>Bank Account</span>
+                                  {(acct.isPrimary || acct.is_primary) && (
+                                    <span style={{ fontSize: '9.5px', fontWeight: '700', color: '#00E599', background: 'rgba(0, 229, 153, 0.12)', padding: '1px 6px', borderRadius: '6px' }}>
+                                      PRIMARY
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <ChevronRightIcon size={16} style={{ color: '#6B87A8', flexShrink: 0 }} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        background: '#071426',
+                        border: '1px dashed #214C7C',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        fontSize: '12.5px',
+                        color: '#A9BDD7',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px'
+                      }}
+                    >
+                      <span>No bank account linked yet.</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCheckBalanceModalOpen(false);
+                          setOnboardingStep(1);
+                          setOnboardingModalOpen(true);
+                        }}
+                        style={{ background: 'rgba(0, 168, 255, 0.15)', color: '#00D5FF', border: '1px solid rgba(0, 168, 255, 0.35)', borderRadius: '8px', padding: '6px 10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                      >
+                        + Link Bank
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ApnaPay Wallet */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCheckBalanceModalOpen(false);
+                      navigate('/app/wallet');
+                    }}
+                    style={{
+                      width: '100%',
+                      background: '#071426',
+                      border: '1px solid #17385D',
+                      borderRadius: '12px',
+                      padding: '13px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#00E599')}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#17385D')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(0, 229, 153, 0.15)', color: '#00E599', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <WalletIcon size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '700', color: '#FFFFFF' }}>ApnaPay Wallet</div>
+                        <div style={{ fontSize: '12px', color: '#A9BDD7', marginTop: '2px' }}>
+                          Balance: <strong style={{ color: '#00E599' }}>{displayWalletBal}</strong>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#00D5FF', marginTop: '2px' }}>
+                          Instant zero-PIN wallet payments
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRightIcon size={18} style={{ color: '#6B87A8', flexShrink: 0 }} />
+                  </button>
+
+                  {/* RuPay Credit Card */}
+                  <div
+                    style={{
+                      background: '#071426',
+                      border: '1px solid #17385D',
+                      borderRadius: '12px',
+                      padding: '13px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(168, 85, 247, 0.15)', color: '#C084FC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <CreditCardIcon size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '700', color: '#FFFFFF' }}>RuPay Credit Card</div>
+                        <div style={{ fontSize: '11.5px', color: '#A9BDD7', marginTop: '2px' }}>Pay via UPI using credit card</div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCheckBalanceModalOpen(false);
+                        navigate('/app/upi');
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#00D5FF',
+                        fontSize: '12.5px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        flexShrink: 0
+                      }}
+                    >
+                      Link Now
+                    </button>
+                  </div>
+
+                  {/* Add New Payment Method */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCheckBalanceModalOpen(false);
+                      setOnboardingStep(1);
+                      setOnboardingModalOpen(true);
+                    }}
+                    style={{
+                      width: '100%',
+                      background: '#071426',
+                      border: '1px solid #17385D',
+                      borderRadius: '12px',
+                      padding: '13px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#00A8FF')}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#17385D')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(255, 255, 255, 0.06)', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', fontWeight: '700', flexShrink: 0 }}>
+                        +
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '700', color: '#FFFFFF' }}>Add new payment method</div>
+                        <div style={{ fontSize: '11.5px', color: '#A9BDD7', marginTop: '2px' }}>Bank Account, UPI &amp; more</div>
+                      </div>
+                    </div>
+                    <ChevronRightIcon size={18} style={{ color: '#6B87A8', flexShrink: 0 }} />
+                  </button>
+                </>
+              )}
+
+              {/* STEP 2: ENTER UPI PIN */}
+              {checkBalanceStep === 'pin' && selectedBalanceBank && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!/^\d{4}$|^\d{6}$/.test(upiPinInput)) {
+                      setUpiPinError('Please enter a valid 4-digit or 6-digit UPI PIN.');
+                      return;
+                    }
+                    setUpiPinError('');
+                    setCheckBalanceStep('loading');
+                    try {
+                      const res = await bankAccountService.checkBalance(
+                        selectedBalanceBank.id,
+                        upiPinInput,
+                        !selectedBalanceBank.hasUpiPin
+                      );
+                      const bal = res?.data?.balance ?? 0;
+                      setFetchedBankBalance(bal);
+                      setBankAccounts((prev) =>
+                        prev.map((b) =>
+                          b.id === selectedBalanceBank.id ? { ...b, hasUpiPin: true, balance: bal } : b
+                        )
+                      );
+                      setSelectedBalanceBank((prev) => (prev ? { ...prev, hasUpiPin: true } : prev));
+                      setCheckBalanceStep('result');
+                    } catch (err) {
+                      const msg = err?.response?.data?.message || 'Incorrect UPI PIN. Please try again.';
+                      setUpiPinError(msg);
+                      setCheckBalanceStep('pin');
+                    }
+                  }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+                >
+                  <div style={{ background: '#071426', border: '1px solid #17385D', borderRadius: '12px', padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <LandmarkIcon size={20} style={{ color: '#00A8FF' }} />
+                      <div>
+                        <div style={{ fontSize: '13.5px', fontWeight: '700', color: '#FFFFFF' }}>
+                          {selectedBalanceBank.displayBankName}
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: '#A9BDD7' }}>
+                          Account •••• {selectedBalanceBank.displayLast4}
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '10px', fontWeight: '800', color: '#00D5FF', background: 'rgba(0, 213, 255, 0.12)', padding: '3px 8px', borderRadius: '6px' }}>
+                      {selectedBalanceBank.hasUpiPin ? 'UPI PIN' : 'FIRST-TIME PIN'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '700', color: '#A9BDD7' }}>
+                        {selectedBalanceBank.hasUpiPin
+                          ? 'ENTER 4 OR 6-DIGIT UPI PIN'
+                          : 'SET 4 OR 6-DIGIT UPI PIN (FIRST TIME)'}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowUpiPin((v) => !v)}
+                        style={{ background: 'transparent', border: 'none', color: '#00D5FF', fontSize: '11.5px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        {showUpiPin ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
+                        <span>{showUpiPin ? 'Hide' : 'Show'}</span>
+                      </button>
+                    </div>
+                    <input
+                      type={showUpiPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      maxLength={6}
+                      autoFocus
+                      value={upiPinInput}
+                      onChange={(e) => {
+                        setUpiPinInput(e.target.value.replace(/\D/g, '').slice(0, 6));
+                        if (upiPinError) setUpiPinError('');
+                      }}
+                      placeholder="••••••"
+                      className="auth-input"
+                      style={{
+                        textAlign: 'center',
+                        letterSpacing: showUpiPin ? '8px' : '10px',
+                        fontSize: '20px',
+                        fontWeight: '800',
+                        height: '48px'
+                      }}
+                    />
+                    {upiPinError && (
+                      <div style={{ color: '#FF4D4D', fontSize: '12px', marginTop: '6px', fontWeight: '600' }}>
+                        {upiPinError}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: '11px', color: '#6B87A8', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                    <ShieldCheckIcon size={14} style={{ color: '#00E599' }} />
+                    <span>Secured by NPCI UPI 256-bit Encryption</span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setCheckBalanceStep('list')}
+                      className="auth-button secondary"
+                      style={{ flex: 1, height: '40px', margin: 0, fontSize: '13px' }}
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="submit"
+                      className="auth-button"
+                      style={{ flex: 2, height: '40px', margin: 0, fontSize: '13px' }}
+                    >
+                      Check Balance
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* STEP 3: LOADING / NPCI SYNC */}
+              {checkBalanceStep === 'loading' && (
+                <div style={{ padding: '32px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
+                  <RefreshCwIcon size={36} style={{ color: '#00D5FF', animation: 'spin 1s linear infinite' }} />
+                  <div style={{ fontSize: '15px', fontWeight: '800', color: '#FFFFFF' }}>
+                    Fetching balance securely...
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#A9BDD7' }}>
+                    Connecting to {selectedBalanceBank?.displayBankName || 'Bank'} via NPCI UPI gateway
                   </div>
                 </div>
-                <span style={{ fontSize: '10.5px', fontWeight: '800', color: '#00E599', background: 'rgba(0, 229, 153, 0.15)', padding: '3px 8px', borderRadius: '8px' }}>
-                  ACTIVE
-                </span>
-              </div>
+              )}
 
-              {/* Primary Bank Balance Simulation */}
-              <div
-                style={{
-                  background: '#071426',
-                  border: '1px solid #17385D',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  marginTop: '10px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(0, 168, 255, 0.15)', color: '#00A8FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <LandmarkIcon size={20} />
+              {/* STEP 4: FETCHED BANK BALANCE RESULT */}
+              {checkBalanceStep === 'result' && selectedBalanceBank && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(0, 229, 153, 0.12) 0%, rgba(0, 168, 255, 0.08) 100%)',
+                      border: '1px solid rgba(0, 229, 153, 0.35)',
+                      borderRadius: '14px',
+                      padding: '20px',
+                      textAlign: 'center'
+                    }}
+                  >
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(0, 229, 153, 0.16)', color: '#00E599', padding: '4px 10px', borderRadius: '999px', fontSize: '11.5px', fontWeight: '700', marginBottom: '12px' }}>
+                      <CheckCircleIcon size={14} />
+                      <span>Bank Account Balance Fetched Successfully</span>
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#A9BDD7', fontWeight: '600' }}>
+                      {selectedBalanceBank.displayBankName} •••• {selectedBalanceBank.displayLast4}
+                    </div>
+                    <div style={{ fontSize: '30px', fontWeight: '900', color: '#FFFFFF', marginTop: '6px', letterSpacing: '-0.5px' }}>
+                      {formatINR(fetchedBankBalance ?? 0)}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#6B87A8', marginTop: '6px' }}>
+                      Available Balance • Checked just now
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: '12px', color: '#A9BDD7' }}>
-                      {primaryBankName} (•••• {primaryBankLast4})
-                    </div>
-                    <div style={{ fontSize: '18px', fontWeight: '800', color: '#FFFFFF', marginTop: '2px' }}>
-                      {balanceRefreshing ? (
-                        <span style={{ fontSize: '14px', color: '#A9BDD7' }}>Fetching from NPCI...</span>
-                      ) : (
-                        '₹48,250.00'
-                      )}
-                    </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCheckBalanceStep('list');
+                        setUpiPinInput('');
+                        setFetchedBankBalance(null);
+                      }}
+                      className="auth-button secondary"
+                      style={{ flex: 1, height: '40px', margin: 0, fontSize: '12.5px' }}
+                    >
+                      Check Another
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCheckBalanceModalOpen(false)}
+                      className="auth-button"
+                      style={{ flex: 1, height: '40px', margin: 0, fontSize: '12.5px' }}
+                    >
+                      Done
+                    </button>
                   </div>
                 </div>
-                <span style={{ fontSize: '10.5px', fontWeight: '800', color: '#00A8FF', background: 'rgba(0, 168, 255, 0.15)', padding: '3px 8px', borderRadius: '8px' }}>
-                  LINKED
-                </span>
-              </div>
-
-              <div style={{ fontSize: '11px', color: '#64748B', marginTop: '10px', textAlign: 'center' }}>
-                Double-entry ledger balance audited under NPCI simulated protocols.
-              </div>
-            </div>
-
-            <div className="admin-land-modal-footer" style={{ justifyContent: 'space-between' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setBalanceRefreshing(true);
-                  setTimeout(() => {
-                    setBalanceRefreshing(false);
-                    showToast('Account balances synchronized with live bank network!');
-                  }, 900);
-                }}
-                className="auth-button secondary"
-                style={{ width: 'auto', padding: '0 16px', height: '36px', fontSize: '12.5px', margin: 0, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <RefreshCwIcon size={14} style={{ animation: balanceRefreshing ? 'spin 1s linear infinite' : 'none' }} />
-                <span>Refresh Balance</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCheckBalanceModalOpen(false)}
-                className="auth-button"
-                style={{ width: 'auto', padding: '0 20px', height: '36px', fontSize: '12.5px', margin: 0 }}
-              >
-                Done
-              </button>
+              )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ========================================================= */}
-      {/* MODAL 4: SCAN & PAY / CAMERA SCANNER SIMULATOR            */}
+      {/* MODAL 4: SCAN & PAY / LIVE CAMERA QR SCANNER              */}
       {/* ========================================================= */}
-      {scanPayModalOpen && (
+      {scanPayModalOpen && createPortal(
         <div
           className="admin-land-modal-overlay"
+          style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
           onClick={() => setScanPayModalOpen(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
             className="admin-land-modal-container"
-            style={{ maxWidth: '440px' }}
+            style={{ maxWidth: '430px', width: 'min(430px, calc(100vw - 24px))' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="admin-land-modal-header">
@@ -2245,9 +3001,14 @@ const CustomerDashboardOverview = () => {
                   <ArrowLeftIcon size={18} />
                 </button>
                 <QrCodeIcon size={20} style={{ color: '#00A8FF' }} />
-                <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#FFFFFF', margin: 0 }}>
-                  Scan Any QR & Pay
-                </h3>
+                <div>
+                  <h3 style={{ fontSize: '15.5px', fontWeight: '800', color: '#FFFFFF', margin: 0 }}>
+                    Scan any QR
+                  </h3>
+                  <div style={{ fontSize: '11px', color: '#A9BDD7' }}>
+                    PhonePe • Google Pay • BHIM • Paytm
+                  </div>
+                </div>
               </div>
               <button
                 type="button"
@@ -2260,35 +3021,114 @@ const CustomerDashboardOverview = () => {
             </div>
 
             <div className="admin-land-modal-body">
-              {/* Simulated Camera Viewfinder */}
+              {/* Live Camera Viewfinder */}
               <div
                 style={{
                   width: '100%',
-                  height: '170px',
+                  height: '220px',
                   background: '#040B16',
-                  border: '2px dashed #00A8FF',
-                  borderRadius: '12px',
+                  border: '1px solid #1E3A5F',
+                  borderRadius: '16px',
                   position: 'relative',
                   overflow: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  boxShadow: 'inset 0 0 20px rgba(0, 168, 255, 0.2)'
+                  boxShadow: 'inset 0 0 24px rgba(0, 168, 255, 0.16)'
                 }}
               >
-                <div style={{ position: 'absolute', top: '16px', left: '16px', width: '24px', height: '24px', borderTop: '3px solid #00D5FF', borderLeft: '3px solid #00D5FF' }} />
-                <div style={{ position: 'absolute', top: '16px', right: '16px', width: '24px', height: '24px', borderTop: '3px solid #00D5FF', borderRight: '3px solid #00D5FF' }} />
-                <div style={{ position: 'absolute', bottom: '16px', left: '16px', width: '24px', height: '24px', borderBottom: '3px solid #00D5FF', borderLeft: '3px solid #00D5FF' }} />
-                <div style={{ position: 'absolute', bottom: '16px', right: '16px', width: '24px', height: '24px', borderBottom: '3px solid #00D5FF', borderRight: '3px solid #00D5FF' }} />
+                <video
+                  ref={qrVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  onLoadedMetadata={() => qrVideoRef.current?.play().catch(() => {})}
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    opacity: cameraActive ? 1 : 0,
+                    transition: 'opacity 0.2s ease'
+                  }}
+                />
 
-                <QrCodeIcon size={48} style={{ color: 'rgba(0, 213, 255, 0.4)', marginBottom: '8px' }} />
-                <div style={{ fontSize: '12.5px', fontWeight: '700', color: '#FFFFFF' }}>
-                  Point camera at any UPI QR Code
-                </div>
-                <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>
-                  Supports PhonePe, GPay, Paytm & BharatQR
-                </div>
+                {/* Corner Scanner Brackets */}
+                <div style={{ position: 'absolute', top: '18px', left: '18px', width: '26px', height: '26px', borderTop: '3px solid #00D5FF', borderLeft: '3px solid #00D5FF', borderTopLeftRadius: '6px', zIndex: 2 }} />
+                <div style={{ position: 'absolute', top: '18px', right: '18px', width: '26px', height: '26px', borderTop: '3px solid #00D5FF', borderRight: '3px solid #00D5FF', borderTopRightRadius: '6px', zIndex: 2 }} />
+                <div style={{ position: 'absolute', bottom: '18px', left: '18px', width: '26px', height: '26px', borderBottom: '3px solid #00D5FF', borderLeft: '3px solid #00D5FF', borderBottomLeftRadius: '6px', zIndex: 2 }} />
+                <div style={{ position: 'absolute', bottom: '18px', right: '18px', width: '26px', height: '26px', borderBottom: '3px solid #00D5FF', borderRight: '3px solid #00D5FF', borderBottomRightRadius: '6px', zIndex: 2 }} />
+
+                {!cameraActive && (
+                  <div style={{ position: 'relative', zIndex: 3, textAlign: 'center', padding: '0 20px' }}>
+                    <QrCodeIcon size={42} style={{ color: 'rgba(0, 213, 255, 0.5)', marginBottom: '8px' }} />
+                    <div style={{ fontSize: '12.5px', fontWeight: '700', color: '#FFFFFF' }}>
+                      {cameraError ? 'Camera Unavailable' : 'Starting Camera...'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#A9BDD7', marginTop: '4px', lineHeight: '1.35' }}>
+                      {cameraError || 'Allow camera permission to scan any UPI QR code'}
+                    </div>
+                    {cameraError && (
+                      <button
+                        type="button"
+                        onClick={startQrCamera}
+                        style={{
+                          marginTop: '10px',
+                          padding: '5px 12px',
+                          borderRadius: '999px',
+                          border: '1px solid #00D5FF',
+                          background: 'rgba(0, 213, 255, 0.14)',
+                          color: '#00D5FF',
+                          fontSize: '11.5px',
+                          fontWeight: '700',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Retry Camera
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {scannedPayeeInfo && (
+                  <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 4, background: 'rgba(5, 13, 27, 0.9)', border: '1px solid #00E599', color: '#00E599', padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }}>
+                    Detected: {scannedPayeeInfo}
+                  </div>
+                )}
+              </div>
+
+              {/* PhonePe-style Upload QR & Torch Action Buttons */}
+              <input
+                ref={qrFileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleUploadQrImage}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '28px', marginTop: '14px' }}>
+                <button
+                  type="button"
+                  onClick={() => qrFileInputRef.current?.click()}
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#FFFFFF' }}
+                >
+                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#0B1B32', border: '1px solid #1E3A5F', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00D5FF' }}>
+                    <DownloadIcon size={18} style={{ transform: 'rotate(180deg)' }} />
+                  </div>
+                  <span style={{ fontSize: '11.5px', fontWeight: '600', color: '#A9BDD7' }}>Upload QR</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleToggleTorch}
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#FFFFFF' }}
+                >
+                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: torchOn ? 'rgba(245, 158, 11, 0.2)' : '#0B1B32', border: `1px solid ${torchOn ? '#F59E0B' : '#1E3A5F'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: torchOn ? '#F59E0B' : '#00D5FF' }}>
+                    <ZapIcon size={18} />
+                  </div>
+                  <span style={{ fontSize: '11.5px', fontWeight: '600', color: torchOn ? '#F59E0B' : '#A9BDD7' }}>Torch</span>
+                </button>
               </div>
 
               {/* Manual Input Fallback */}
@@ -2313,7 +3153,6 @@ const CustomerDashboardOverview = () => {
                     outline: 'none',
                     boxSizing: 'border-box'
                   }}
-                  autoFocus
                 />
               </div>
 
@@ -2359,7 +3198,9 @@ const CustomerDashboardOverview = () => {
                 type="button"
                 onClick={() => {
                   setScanPayModalOpen(false);
-                  navigate('/app/upi');
+                  navigate('/app/transfers', {
+                    state: { payee: scanUpiInput, amount: quickAmount }
+                  });
                 }}
                 className="auth-button"
                 style={{ width: 'auto', padding: '0 20px', height: '38px', fontSize: '13px', margin: 0 }}
@@ -2368,7 +3209,8 @@ const CustomerDashboardOverview = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ========================================================= */}

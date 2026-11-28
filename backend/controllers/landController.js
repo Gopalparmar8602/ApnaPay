@@ -520,6 +520,504 @@ exports.createOrder = async (req, res) => {
 };
 
 // ==========================================
+// 13. POST /api/land/exits - Submit Demo Exit Request
+// ==========================================
+exports.createExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized access.' });
+        }
+
+        const rawHoldingId = req.body?.holdingId || req.body?.holding_id;
+        const reqUnits = parseFloat(req.body?.units || req.body?.quantity);
+        const notes = req.body?.notes ? String(req.body.notes).trim().slice(0, 255) : null;
+
+        if (!rawHoldingId || !/^\d+$/.test(String(rawHoldingId))) {
+            return res.status(400).json({ success: false, message: 'Valid holding ID is required.' });
+        }
+
+        if (!reqUnits || isNaN(reqUnits) || reqUnits <= 0) {
+            return res.status(400).json({ success: false, message: 'Exit quantity must be greater than zero.' });
+        }
+
+        await conn.beginTransaction();
+
+        const [holdings] = await conn.query(
+            `SELECT h.id, h.user_id, h.project_id, h.units_owned, h.status,
+                    p.project_name, p.unit_name, p.price_per_unit
+             FROM land_holdings h
+             JOIN land_projects p ON h.project_id = p.id
+             WHERE h.id = ? AND h.user_id = ?
+             FOR UPDATE`,
+            [Number(rawHoldingId), userId]
+        );
+
+        if (holdings.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Holding not found.' });
+        }
+
+        const holding = holdings[0];
+        if (String(holding.status).toLowerCase() !== 'active' || parseFloat(holding.units_owned) <= 0) {
+            await conn.rollback();
+            return res.status(400).json({ success: false, message: 'This holding is not eligible for exit.' });
+        }
+
+        // Check existing pending/approved exit requests to prevent over-exiting
+        const [activeExits] = await conn.query(
+            `SELECT COALESCE(SUM(units_requested), 0) AS reserved_units
+             FROM land_exit_requests
+             WHERE holding_id = ? AND user_id = ? AND status IN ('exit_pending', 'exit_approved')
+             FOR UPDATE`,
+            [holding.id, userId]
+        );
+
+        const unitsOwned = parseFloat(holding.units_owned) || 0;
+        const alreadyReserved = parseFloat(activeExits[0]?.reserved_units) || 0;
+        const remainingExitable = toDecimal(unitsOwned - alreadyReserved);
+
+        if (reqUnits > remainingExitable) {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Requested exit (${reqUnits} ${holding.unit_name}) exceeds available holding balance (${remainingExitable} ${holding.unit_name}).`
+            });
+        }
+
+        const pricePerUnit = toDecimal(holding.price_per_unit);
+        const estimatedValue = toDecimal(reqUnits * pricePerUnit);
+        const dateCode = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const randomCode = crypto.randomBytes(3).toString('hex').toUpperCase();
+        const exitReference = `EXIT-${dateCode}-${randomCode}`;
+
+        const [insertRes] = await conn.query(
+            `INSERT INTO land_exit_requests
+             (exit_reference, user_id, holding_id, project_id, units_requested, price_per_unit, estimated_value, status, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'exit_pending', ?)`,
+            [exitReference, userId, holding.id, holding.project_id, reqUnits, pricePerUnit, estimatedValue, notes]
+        );
+
+        await conn.query(
+            `INSERT INTO land_transactions
+             (user_id, project_id, order_reference, transaction_type, units, amount, status, description)
+             VALUES (?, ?, ?, 'exit_request', ?, ?, 'pending', ?)`,
+            [
+                userId,
+                holding.project_id,
+                exitReference,
+                reqUnits,
+                estimatedValue,
+                `Demo exit request ${exitReference} submitted for ${reqUnits} ${holding.unit_name} (${holding.project_name})`
+            ]
+        );
+
+        await NotificationService.notify({
+            userId,
+            title: 'Demo Exit Request Submitted',
+            message: `Your demo exit request ${exitReference} for ${reqUnits} ${holding.unit_name} in ${holding.project_name} (Est. ₹${estimatedValue.toLocaleString('en-IN')}) is pending admin review.`,
+            category: 'digital_land',
+            type: 'info',
+            referenceId: insertRes.insertId,
+            referenceType: 'LAND_EXIT_SUBMITTED',
+            notificationType: 'LAND_EXIT_SUBMITTED',
+            conn
+        });
+
+        await conn.commit();
+
+        return res.status(201).json({
+            success: true,
+            message: 'Demo exit request submitted for admin review.',
+            data: {
+                id: insertRes.insertId,
+                exitReference,
+                holdingId: holding.id,
+                projectId: holding.project_id,
+                projectName: holding.project_name,
+                unitName: holding.unit_name,
+                unitsRequested: reqUnits,
+                pricePerUnit,
+                estimatedValue,
+                status: 'exit_pending',
+                createdAt: new Date()
+            }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Create Exit Request Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to submit demo exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 14. GET /api/land/exits - User's Demo Exit Requests
+// ==========================================
+exports.getUserExitRequests = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized access.' });
+        }
+
+        const [rows] = await db.execute(
+            `SELECT e.*, p.project_name, p.location, p.unit_name
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.user_id = ?
+             ORDER BY e.id DESC`,
+            [userId]
+        );
+
+        return res.status(200).json({
+            success: true,
+            data: rows.map((r) => ({
+                id: r.id,
+                exitReference: r.exit_reference,
+                holdingId: r.holding_id,
+                projectId: r.project_id,
+                projectName: r.project_name,
+                location: r.location,
+                unitName: r.unit_name,
+                unitsRequested: parseFloat(r.units_requested),
+                pricePerUnit: parseFloat(r.price_per_unit),
+                estimatedValue: parseFloat(r.estimated_value),
+                status: r.status,
+                notes: r.notes,
+                rejectionReason: r.rejection_reason,
+                reviewedAt: r.reviewed_at,
+                completedAt: r.completed_at,
+                createdAt: r.created_at
+            }))
+        });
+    } catch (error) {
+        console.error('Get User Exit Requests Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to load exit requests.' });
+    }
+};
+
+// ==========================================
+// 15. GET /api/land/admin/exits - Admin List Exit Requests
+// ==========================================
+exports.getAdminExitRequests = async (req, res) => {
+    try {
+        if (!req.admin?.adminId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized admin access.' });
+        }
+
+        const statusFilter = req.query?.status;
+        let query = `
+            SELECT e.*, p.project_name, p.location, p.unit_name,
+                   u.full_name AS user_name, u.email AS user_email, u.phone AS user_phone
+            FROM land_exit_requests e
+            JOIN land_projects p ON e.project_id = p.id
+            JOIN users u ON e.user_id = u.id
+        `;
+        const params = [];
+        if (statusFilter && statusFilter !== 'all') {
+            query += ` WHERE e.status = ?`;
+            params.push(statusFilter);
+        }
+        query += ` ORDER BY e.id DESC`;
+
+        const [rows] = await db.execute(query, params);
+        const [counts] = await db.execute(`
+            SELECT
+                COUNT(*) AS totalExits,
+                SUM(CASE WHEN status = 'exit_pending' THEN 1 ELSE 0 END) AS pendingExits,
+                SUM(CASE WHEN status = 'exit_approved' THEN 1 ELSE 0 END) AS approvedExits,
+                SUM(CASE WHEN status = 'exit_completed' THEN 1 ELSE 0 END) AS completedExits,
+                SUM(CASE WHEN status = 'exit_rejected' THEN 1 ELSE 0 END) AS rejectedExits
+            FROM land_exit_requests
+        `);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                summary: counts[0] || {},
+                exits: rows.map((r) => ({
+                    id: r.id,
+                    exitReference: r.exit_reference,
+                    holdingId: r.holding_id,
+                    projectId: r.project_id,
+                    projectName: r.project_name,
+                    location: r.location,
+                    unitName: r.unit_name,
+                    userId: r.user_id,
+                    userName: r.user_name,
+                    userEmail: r.user_email,
+                    userPhone: r.user_phone,
+                    unitsRequested: parseFloat(r.units_requested),
+                    pricePerUnit: parseFloat(r.price_per_unit),
+                    estimatedValue: parseFloat(r.estimated_value),
+                    status: r.status,
+                    notes: r.notes,
+                    rejectionReason: r.rejection_reason,
+                    reviewedAt: r.reviewed_at,
+                    completedAt: r.completed_at,
+                    createdAt: r.created_at
+                }))
+            }
+        });
+    } catch (error) {
+        console.error('Get Admin Exit Requests Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to load exit requests.' });
+    }
+};
+
+// ==========================================
+// 16. POST /api/land/admin/exits/:id/approve
+// ==========================================
+exports.approveExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const adminId = req.admin?.adminId;
+        const exitId = parseInt(req.params.id, 10);
+        if (!adminId || !exitId) {
+            return res.status(400).json({ success: false, message: 'Invalid request.' });
+        }
+
+        await conn.beginTransaction();
+        const [rows] = await conn.query(
+            `SELECT e.*, p.project_name, p.unit_name
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.id = ? FOR UPDATE`,
+            [exitId]
+        );
+
+        if (rows.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Exit request not found.' });
+        }
+
+        const exitReq = rows[0];
+        if (exitReq.status !== 'exit_pending') {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Cannot approve exit request because current status is '${exitReq.status}'.`
+            });
+        }
+
+        await conn.query(
+            `UPDATE land_exit_requests SET status = 'exit_approved', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
+            [adminId, exitId]
+        );
+
+        await NotificationService.notify({
+            userId: exitReq.user_id,
+            title: 'Demo Exit Request Approved',
+            message: `Your demo exit request ${exitReq.exit_reference} for ${parseFloat(exitReq.units_requested)} ${exitReq.unit_name} in ${exitReq.project_name} has been approved by admin.`,
+            category: 'digital_land',
+            type: 'success',
+            referenceId: exitId,
+            referenceType: 'LAND_EXIT_APPROVED',
+            notificationType: 'LAND_EXIT_APPROVED',
+            conn
+        });
+
+        await conn.commit();
+        return res.status(200).json({
+            success: true,
+            message: `Exit request ${exitReq.exit_reference} approved.`,
+            data: { id: exitId, status: 'exit_approved' }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Approve Exit Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to approve exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 17. POST /api/land/admin/exits/:id/reject
+// ==========================================
+exports.rejectExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const adminId = req.admin?.adminId;
+        const exitId = parseInt(req.params.id, 10);
+        const reason = String(req.body?.reason || '').trim().slice(0, 255);
+
+        if (!adminId || !exitId) {
+            return res.status(400).json({ success: false, message: 'Invalid request.' });
+        }
+        if (!reason) {
+            return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
+        }
+
+        await conn.beginTransaction();
+        const [rows] = await conn.query(
+            `SELECT e.*, p.project_name, p.unit_name
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.id = ? FOR UPDATE`,
+            [exitId]
+        );
+
+        if (rows.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Exit request not found.' });
+        }
+
+        const exitReq = rows[0];
+        if (exitReq.status !== 'exit_pending') {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Cannot reject exit request because current status is '${exitReq.status}'.`
+            });
+        }
+
+        await conn.query(
+            `UPDATE land_exit_requests SET status = 'exit_rejected', rejection_reason = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
+            [reason, adminId, exitId]
+        );
+
+        await conn.query(
+            `UPDATE land_transactions SET status = 'rejected', description = ? WHERE order_reference = ?`,
+            [`Demo exit ${exitReq.exit_reference} rejected: ${reason}`, exitReq.exit_reference]
+        );
+
+        await NotificationService.notify({
+            userId: exitReq.user_id,
+            title: 'Demo Exit Request Rejected',
+            message: `Your demo exit request ${exitReq.exit_reference} for ${exitReq.project_name} was rejected.\nRejection Reason: ${reason}`,
+            category: 'digital_land',
+            type: 'error',
+            referenceId: exitId,
+            referenceType: 'LAND_EXIT_REJECTED',
+            notificationType: 'LAND_EXIT_REJECTED',
+            conn
+        });
+
+        await conn.commit();
+        return res.status(200).json({
+            success: true,
+            message: `Exit request ${exitReq.exit_reference} rejected.`,
+            data: { id: exitId, status: 'exit_rejected', rejectionReason: reason }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Reject Exit Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to reject exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 18. POST /api/land/admin/exits/:id/complete
+// ==========================================
+exports.completeExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const adminId = req.admin?.adminId;
+        const exitId = parseInt(req.params.id, 10);
+        if (!adminId || !exitId) {
+            return res.status(400).json({ success: false, message: 'Invalid request.' });
+        }
+
+        await conn.beginTransaction();
+        const [rows] = await conn.query(
+            `SELECT e.*, p.project_name, p.unit_name, p.total_units, p.available_units
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.id = ? FOR UPDATE`,
+            [exitId]
+        );
+
+        if (rows.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Exit request not found.' });
+        }
+
+        const exitReq = rows[0];
+        if (exitReq.status !== 'exit_approved') {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Exit request must be 'exit_approved' before completion (current: '${exitReq.status}').`
+            });
+        }
+
+        const [holdings] = await conn.query(
+            `SELECT id, units_owned, total_invested FROM land_holdings WHERE id = ? FOR UPDATE`,
+            [exitReq.holding_id]
+        );
+        if (holdings.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Associated holding not found.' });
+        }
+
+        const holding = holdings[0];
+        const reqUnits = parseFloat(exitReq.units_requested);
+        const ownedUnits = parseFloat(holding.units_owned);
+        if (reqUnits > ownedUnits) {
+            await conn.rollback();
+            return res.status(400).json({ success: false, message: 'Requested exit units exceed current holding units.' });
+        }
+
+        const newUnitsOwned = toDecimal(ownedUnits - reqUnits);
+        const ratioRemaining = ownedUnits > 0 ? newUnitsOwned / ownedUnits : 0;
+        const newTotalInvested = toDecimal((parseFloat(holding.total_invested) || 0) * ratioRemaining);
+        const newHoldingStatus = newUnitsOwned <= 0 ? 'exited' : 'active';
+
+        await conn.query(
+            `UPDATE land_holdings SET units_owned = ?, total_invested = ?, status = ?, updated_at = NOW() WHERE id = ?`,
+            [newUnitsOwned, newTotalInvested, newHoldingStatus, holding.id]
+        );
+
+        // Restore available units to project inventory
+        await conn.query(
+            `UPDATE land_projects SET available_units = LEAST(total_units, available_units + ?) WHERE id = ?`,
+            [reqUnits, exitReq.project_id]
+        );
+
+        await conn.query(
+            `UPDATE land_exit_requests SET status = 'exit_completed', completed_at = NOW() WHERE id = ?`,
+            [exitId]
+        );
+
+        await conn.query(
+            `UPDATE land_transactions SET status = 'completed', description = ? WHERE order_reference = ?`,
+            [`Demo exit ${exitReq.exit_reference} completed (no real payout executed)`, exitReq.exit_reference]
+        );
+
+        await NotificationService.notify({
+            userId: exitReq.user_id,
+            title: 'Demo Exit Completed',
+            message: `Demo exit ${exitReq.exit_reference} for ${reqUnits} ${exitReq.unit_name} in ${exitReq.project_name} is marked completed. (Demo mode — no real payout executed).`,
+            category: 'digital_land',
+            type: 'success',
+            referenceId: exitId,
+            referenceType: 'LAND_EXIT_COMPLETED',
+            notificationType: 'LAND_EXIT_COMPLETED',
+            conn
+        });
+
+        await conn.commit();
+        return res.status(200).json({
+            success: true,
+            message: `Demo exit ${exitReq.exit_reference} completed.`,
+            data: { id: exitId, status: 'exit_completed', remainingHoldingUnits: newUnitsOwned }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Complete Exit Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to complete exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
 // 5. GET /api/land/orders/:id - Get specific order status
 // ==========================================
 exports.getOrderById = async (req, res) => {
@@ -1427,6 +1925,504 @@ exports.approveOrder = async (req, res) => {
 };
 
 // ==========================================
+// 13. POST /api/land/exits - Submit Demo Exit Request
+// ==========================================
+exports.createExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized access.' });
+        }
+
+        const rawHoldingId = req.body?.holdingId || req.body?.holding_id;
+        const reqUnits = parseFloat(req.body?.units || req.body?.quantity);
+        const notes = req.body?.notes ? String(req.body.notes).trim().slice(0, 255) : null;
+
+        if (!rawHoldingId || !/^\d+$/.test(String(rawHoldingId))) {
+            return res.status(400).json({ success: false, message: 'Valid holding ID is required.' });
+        }
+
+        if (!reqUnits || isNaN(reqUnits) || reqUnits <= 0) {
+            return res.status(400).json({ success: false, message: 'Exit quantity must be greater than zero.' });
+        }
+
+        await conn.beginTransaction();
+
+        const [holdings] = await conn.query(
+            `SELECT h.id, h.user_id, h.project_id, h.units_owned, h.status,
+                    p.project_name, p.unit_name, p.price_per_unit
+             FROM land_holdings h
+             JOIN land_projects p ON h.project_id = p.id
+             WHERE h.id = ? AND h.user_id = ?
+             FOR UPDATE`,
+            [Number(rawHoldingId), userId]
+        );
+
+        if (holdings.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Holding not found.' });
+        }
+
+        const holding = holdings[0];
+        if (String(holding.status).toLowerCase() !== 'active' || parseFloat(holding.units_owned) <= 0) {
+            await conn.rollback();
+            return res.status(400).json({ success: false, message: 'This holding is not eligible for exit.' });
+        }
+
+        // Check existing pending/approved exit requests to prevent over-exiting
+        const [activeExits] = await conn.query(
+            `SELECT COALESCE(SUM(units_requested), 0) AS reserved_units
+             FROM land_exit_requests
+             WHERE holding_id = ? AND user_id = ? AND status IN ('exit_pending', 'exit_approved')
+             FOR UPDATE`,
+            [holding.id, userId]
+        );
+
+        const unitsOwned = parseFloat(holding.units_owned) || 0;
+        const alreadyReserved = parseFloat(activeExits[0]?.reserved_units) || 0;
+        const remainingExitable = toDecimal(unitsOwned - alreadyReserved);
+
+        if (reqUnits > remainingExitable) {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Requested exit (${reqUnits} ${holding.unit_name}) exceeds available holding balance (${remainingExitable} ${holding.unit_name}).`
+            });
+        }
+
+        const pricePerUnit = toDecimal(holding.price_per_unit);
+        const estimatedValue = toDecimal(reqUnits * pricePerUnit);
+        const dateCode = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const randomCode = crypto.randomBytes(3).toString('hex').toUpperCase();
+        const exitReference = `EXIT-${dateCode}-${randomCode}`;
+
+        const [insertRes] = await conn.query(
+            `INSERT INTO land_exit_requests
+             (exit_reference, user_id, holding_id, project_id, units_requested, price_per_unit, estimated_value, status, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'exit_pending', ?)`,
+            [exitReference, userId, holding.id, holding.project_id, reqUnits, pricePerUnit, estimatedValue, notes]
+        );
+
+        await conn.query(
+            `INSERT INTO land_transactions
+             (user_id, project_id, order_reference, transaction_type, units, amount, status, description)
+             VALUES (?, ?, ?, 'exit_request', ?, ?, 'pending', ?)`,
+            [
+                userId,
+                holding.project_id,
+                exitReference,
+                reqUnits,
+                estimatedValue,
+                `Demo exit request ${exitReference} submitted for ${reqUnits} ${holding.unit_name} (${holding.project_name})`
+            ]
+        );
+
+        await NotificationService.notify({
+            userId,
+            title: 'Demo Exit Request Submitted',
+            message: `Your demo exit request ${exitReference} for ${reqUnits} ${holding.unit_name} in ${holding.project_name} (Est. ₹${estimatedValue.toLocaleString('en-IN')}) is pending admin review.`,
+            category: 'digital_land',
+            type: 'info',
+            referenceId: insertRes.insertId,
+            referenceType: 'LAND_EXIT_SUBMITTED',
+            notificationType: 'LAND_EXIT_SUBMITTED',
+            conn
+        });
+
+        await conn.commit();
+
+        return res.status(201).json({
+            success: true,
+            message: 'Demo exit request submitted for admin review.',
+            data: {
+                id: insertRes.insertId,
+                exitReference,
+                holdingId: holding.id,
+                projectId: holding.project_id,
+                projectName: holding.project_name,
+                unitName: holding.unit_name,
+                unitsRequested: reqUnits,
+                pricePerUnit,
+                estimatedValue,
+                status: 'exit_pending',
+                createdAt: new Date()
+            }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Create Exit Request Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to submit demo exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 14. GET /api/land/exits - User's Demo Exit Requests
+// ==========================================
+exports.getUserExitRequests = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized access.' });
+        }
+
+        const [rows] = await db.execute(
+            `SELECT e.*, p.project_name, p.location, p.unit_name
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.user_id = ?
+             ORDER BY e.id DESC`,
+            [userId]
+        );
+
+        return res.status(200).json({
+            success: true,
+            data: rows.map((r) => ({
+                id: r.id,
+                exitReference: r.exit_reference,
+                holdingId: r.holding_id,
+                projectId: r.project_id,
+                projectName: r.project_name,
+                location: r.location,
+                unitName: r.unit_name,
+                unitsRequested: parseFloat(r.units_requested),
+                pricePerUnit: parseFloat(r.price_per_unit),
+                estimatedValue: parseFloat(r.estimated_value),
+                status: r.status,
+                notes: r.notes,
+                rejectionReason: r.rejection_reason,
+                reviewedAt: r.reviewed_at,
+                completedAt: r.completed_at,
+                createdAt: r.created_at
+            }))
+        });
+    } catch (error) {
+        console.error('Get User Exit Requests Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to load exit requests.' });
+    }
+};
+
+// ==========================================
+// 15. GET /api/land/admin/exits - Admin List Exit Requests
+// ==========================================
+exports.getAdminExitRequests = async (req, res) => {
+    try {
+        if (!req.admin?.adminId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized admin access.' });
+        }
+
+        const statusFilter = req.query?.status;
+        let query = `
+            SELECT e.*, p.project_name, p.location, p.unit_name,
+                   u.full_name AS user_name, u.email AS user_email, u.phone AS user_phone
+            FROM land_exit_requests e
+            JOIN land_projects p ON e.project_id = p.id
+            JOIN users u ON e.user_id = u.id
+        `;
+        const params = [];
+        if (statusFilter && statusFilter !== 'all') {
+            query += ` WHERE e.status = ?`;
+            params.push(statusFilter);
+        }
+        query += ` ORDER BY e.id DESC`;
+
+        const [rows] = await db.execute(query, params);
+        const [counts] = await db.execute(`
+            SELECT
+                COUNT(*) AS totalExits,
+                SUM(CASE WHEN status = 'exit_pending' THEN 1 ELSE 0 END) AS pendingExits,
+                SUM(CASE WHEN status = 'exit_approved' THEN 1 ELSE 0 END) AS approvedExits,
+                SUM(CASE WHEN status = 'exit_completed' THEN 1 ELSE 0 END) AS completedExits,
+                SUM(CASE WHEN status = 'exit_rejected' THEN 1 ELSE 0 END) AS rejectedExits
+            FROM land_exit_requests
+        `);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                summary: counts[0] || {},
+                exits: rows.map((r) => ({
+                    id: r.id,
+                    exitReference: r.exit_reference,
+                    holdingId: r.holding_id,
+                    projectId: r.project_id,
+                    projectName: r.project_name,
+                    location: r.location,
+                    unitName: r.unit_name,
+                    userId: r.user_id,
+                    userName: r.user_name,
+                    userEmail: r.user_email,
+                    userPhone: r.user_phone,
+                    unitsRequested: parseFloat(r.units_requested),
+                    pricePerUnit: parseFloat(r.price_per_unit),
+                    estimatedValue: parseFloat(r.estimated_value),
+                    status: r.status,
+                    notes: r.notes,
+                    rejectionReason: r.rejection_reason,
+                    reviewedAt: r.reviewed_at,
+                    completedAt: r.completed_at,
+                    createdAt: r.created_at
+                }))
+            }
+        });
+    } catch (error) {
+        console.error('Get Admin Exit Requests Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to load exit requests.' });
+    }
+};
+
+// ==========================================
+// 16. POST /api/land/admin/exits/:id/approve
+// ==========================================
+exports.approveExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const adminId = req.admin?.adminId;
+        const exitId = parseInt(req.params.id, 10);
+        if (!adminId || !exitId) {
+            return res.status(400).json({ success: false, message: 'Invalid request.' });
+        }
+
+        await conn.beginTransaction();
+        const [rows] = await conn.query(
+            `SELECT e.*, p.project_name, p.unit_name
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.id = ? FOR UPDATE`,
+            [exitId]
+        );
+
+        if (rows.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Exit request not found.' });
+        }
+
+        const exitReq = rows[0];
+        if (exitReq.status !== 'exit_pending') {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Cannot approve exit request because current status is '${exitReq.status}'.`
+            });
+        }
+
+        await conn.query(
+            `UPDATE land_exit_requests SET status = 'exit_approved', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
+            [adminId, exitId]
+        );
+
+        await NotificationService.notify({
+            userId: exitReq.user_id,
+            title: 'Demo Exit Request Approved',
+            message: `Your demo exit request ${exitReq.exit_reference} for ${parseFloat(exitReq.units_requested)} ${exitReq.unit_name} in ${exitReq.project_name} has been approved by admin.`,
+            category: 'digital_land',
+            type: 'success',
+            referenceId: exitId,
+            referenceType: 'LAND_EXIT_APPROVED',
+            notificationType: 'LAND_EXIT_APPROVED',
+            conn
+        });
+
+        await conn.commit();
+        return res.status(200).json({
+            success: true,
+            message: `Exit request ${exitReq.exit_reference} approved.`,
+            data: { id: exitId, status: 'exit_approved' }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Approve Exit Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to approve exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 17. POST /api/land/admin/exits/:id/reject
+// ==========================================
+exports.rejectExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const adminId = req.admin?.adminId;
+        const exitId = parseInt(req.params.id, 10);
+        const reason = String(req.body?.reason || '').trim().slice(0, 255);
+
+        if (!adminId || !exitId) {
+            return res.status(400).json({ success: false, message: 'Invalid request.' });
+        }
+        if (!reason) {
+            return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
+        }
+
+        await conn.beginTransaction();
+        const [rows] = await conn.query(
+            `SELECT e.*, p.project_name, p.unit_name
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.id = ? FOR UPDATE`,
+            [exitId]
+        );
+
+        if (rows.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Exit request not found.' });
+        }
+
+        const exitReq = rows[0];
+        if (exitReq.status !== 'exit_pending') {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Cannot reject exit request because current status is '${exitReq.status}'.`
+            });
+        }
+
+        await conn.query(
+            `UPDATE land_exit_requests SET status = 'exit_rejected', rejection_reason = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
+            [reason, adminId, exitId]
+        );
+
+        await conn.query(
+            `UPDATE land_transactions SET status = 'rejected', description = ? WHERE order_reference = ?`,
+            [`Demo exit ${exitReq.exit_reference} rejected: ${reason}`, exitReq.exit_reference]
+        );
+
+        await NotificationService.notify({
+            userId: exitReq.user_id,
+            title: 'Demo Exit Request Rejected',
+            message: `Your demo exit request ${exitReq.exit_reference} for ${exitReq.project_name} was rejected.\nRejection Reason: ${reason}`,
+            category: 'digital_land',
+            type: 'error',
+            referenceId: exitId,
+            referenceType: 'LAND_EXIT_REJECTED',
+            notificationType: 'LAND_EXIT_REJECTED',
+            conn
+        });
+
+        await conn.commit();
+        return res.status(200).json({
+            success: true,
+            message: `Exit request ${exitReq.exit_reference} rejected.`,
+            data: { id: exitId, status: 'exit_rejected', rejectionReason: reason }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Reject Exit Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to reject exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 18. POST /api/land/admin/exits/:id/complete
+// ==========================================
+exports.completeExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const adminId = req.admin?.adminId;
+        const exitId = parseInt(req.params.id, 10);
+        if (!adminId || !exitId) {
+            return res.status(400).json({ success: false, message: 'Invalid request.' });
+        }
+
+        await conn.beginTransaction();
+        const [rows] = await conn.query(
+            `SELECT e.*, p.project_name, p.unit_name, p.total_units, p.available_units
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.id = ? FOR UPDATE`,
+            [exitId]
+        );
+
+        if (rows.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Exit request not found.' });
+        }
+
+        const exitReq = rows[0];
+        if (exitReq.status !== 'exit_approved') {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Exit request must be 'exit_approved' before completion (current: '${exitReq.status}').`
+            });
+        }
+
+        const [holdings] = await conn.query(
+            `SELECT id, units_owned, total_invested FROM land_holdings WHERE id = ? FOR UPDATE`,
+            [exitReq.holding_id]
+        );
+        if (holdings.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Associated holding not found.' });
+        }
+
+        const holding = holdings[0];
+        const reqUnits = parseFloat(exitReq.units_requested);
+        const ownedUnits = parseFloat(holding.units_owned);
+        if (reqUnits > ownedUnits) {
+            await conn.rollback();
+            return res.status(400).json({ success: false, message: 'Requested exit units exceed current holding units.' });
+        }
+
+        const newUnitsOwned = toDecimal(ownedUnits - reqUnits);
+        const ratioRemaining = ownedUnits > 0 ? newUnitsOwned / ownedUnits : 0;
+        const newTotalInvested = toDecimal((parseFloat(holding.total_invested) || 0) * ratioRemaining);
+        const newHoldingStatus = newUnitsOwned <= 0 ? 'exited' : 'active';
+
+        await conn.query(
+            `UPDATE land_holdings SET units_owned = ?, total_invested = ?, status = ?, updated_at = NOW() WHERE id = ?`,
+            [newUnitsOwned, newTotalInvested, newHoldingStatus, holding.id]
+        );
+
+        // Restore available units to project inventory
+        await conn.query(
+            `UPDATE land_projects SET available_units = LEAST(total_units, available_units + ?) WHERE id = ?`,
+            [reqUnits, exitReq.project_id]
+        );
+
+        await conn.query(
+            `UPDATE land_exit_requests SET status = 'exit_completed', completed_at = NOW() WHERE id = ?`,
+            [exitId]
+        );
+
+        await conn.query(
+            `UPDATE land_transactions SET status = 'completed', description = ? WHERE order_reference = ?`,
+            [`Demo exit ${exitReq.exit_reference} completed (no real payout executed)`, exitReq.exit_reference]
+        );
+
+        await NotificationService.notify({
+            userId: exitReq.user_id,
+            title: 'Demo Exit Completed',
+            message: `Demo exit ${exitReq.exit_reference} for ${reqUnits} ${exitReq.unit_name} in ${exitReq.project_name} is marked completed. (Demo mode — no real payout executed).`,
+            category: 'digital_land',
+            type: 'success',
+            referenceId: exitId,
+            referenceType: 'LAND_EXIT_COMPLETED',
+            notificationType: 'LAND_EXIT_COMPLETED',
+            conn
+        });
+
+        await conn.commit();
+        return res.status(200).json({
+            success: true,
+            message: `Demo exit ${exitReq.exit_reference} completed.`,
+            data: { id: exitId, status: 'exit_completed', remainingHoldingUnits: newUnitsOwned }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Complete Exit Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to complete exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
 // 12. POST /api/land/admin/orders/:id/reject - Reject Land Order
 // ==========================================
 exports.rejectOrder = async (req, res) => {
@@ -1562,6 +2558,504 @@ exports.rejectOrder = async (req, res) => {
             success: false,
             message: 'Failed to reject land order. Please try again.'
         });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 13. POST /api/land/exits - Submit Demo Exit Request
+// ==========================================
+exports.createExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized access.' });
+        }
+
+        const rawHoldingId = req.body?.holdingId || req.body?.holding_id;
+        const reqUnits = parseFloat(req.body?.units || req.body?.quantity);
+        const notes = req.body?.notes ? String(req.body.notes).trim().slice(0, 255) : null;
+
+        if (!rawHoldingId || !/^\d+$/.test(String(rawHoldingId))) {
+            return res.status(400).json({ success: false, message: 'Valid holding ID is required.' });
+        }
+
+        if (!reqUnits || isNaN(reqUnits) || reqUnits <= 0) {
+            return res.status(400).json({ success: false, message: 'Exit quantity must be greater than zero.' });
+        }
+
+        await conn.beginTransaction();
+
+        const [holdings] = await conn.query(
+            `SELECT h.id, h.user_id, h.project_id, h.units_owned, h.status,
+                    p.project_name, p.unit_name, p.price_per_unit
+             FROM land_holdings h
+             JOIN land_projects p ON h.project_id = p.id
+             WHERE h.id = ? AND h.user_id = ?
+             FOR UPDATE`,
+            [Number(rawHoldingId), userId]
+        );
+
+        if (holdings.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Holding not found.' });
+        }
+
+        const holding = holdings[0];
+        if (String(holding.status).toLowerCase() !== 'active' || parseFloat(holding.units_owned) <= 0) {
+            await conn.rollback();
+            return res.status(400).json({ success: false, message: 'This holding is not eligible for exit.' });
+        }
+
+        // Check existing pending/approved exit requests to prevent over-exiting
+        const [activeExits] = await conn.query(
+            `SELECT COALESCE(SUM(units_requested), 0) AS reserved_units
+             FROM land_exit_requests
+             WHERE holding_id = ? AND user_id = ? AND status IN ('exit_pending', 'exit_approved')
+             FOR UPDATE`,
+            [holding.id, userId]
+        );
+
+        const unitsOwned = parseFloat(holding.units_owned) || 0;
+        const alreadyReserved = parseFloat(activeExits[0]?.reserved_units) || 0;
+        const remainingExitable = toDecimal(unitsOwned - alreadyReserved);
+
+        if (reqUnits > remainingExitable) {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Requested exit (${reqUnits} ${holding.unit_name}) exceeds available holding balance (${remainingExitable} ${holding.unit_name}).`
+            });
+        }
+
+        const pricePerUnit = toDecimal(holding.price_per_unit);
+        const estimatedValue = toDecimal(reqUnits * pricePerUnit);
+        const dateCode = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const randomCode = crypto.randomBytes(3).toString('hex').toUpperCase();
+        const exitReference = `EXIT-${dateCode}-${randomCode}`;
+
+        const [insertRes] = await conn.query(
+            `INSERT INTO land_exit_requests
+             (exit_reference, user_id, holding_id, project_id, units_requested, price_per_unit, estimated_value, status, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'exit_pending', ?)`,
+            [exitReference, userId, holding.id, holding.project_id, reqUnits, pricePerUnit, estimatedValue, notes]
+        );
+
+        await conn.query(
+            `INSERT INTO land_transactions
+             (user_id, project_id, order_reference, transaction_type, units, amount, status, description)
+             VALUES (?, ?, ?, 'exit_request', ?, ?, 'pending', ?)`,
+            [
+                userId,
+                holding.project_id,
+                exitReference,
+                reqUnits,
+                estimatedValue,
+                `Demo exit request ${exitReference} submitted for ${reqUnits} ${holding.unit_name} (${holding.project_name})`
+            ]
+        );
+
+        await NotificationService.notify({
+            userId,
+            title: 'Demo Exit Request Submitted',
+            message: `Your demo exit request ${exitReference} for ${reqUnits} ${holding.unit_name} in ${holding.project_name} (Est. ₹${estimatedValue.toLocaleString('en-IN')}) is pending admin review.`,
+            category: 'digital_land',
+            type: 'info',
+            referenceId: insertRes.insertId,
+            referenceType: 'LAND_EXIT_SUBMITTED',
+            notificationType: 'LAND_EXIT_SUBMITTED',
+            conn
+        });
+
+        await conn.commit();
+
+        return res.status(201).json({
+            success: true,
+            message: 'Demo exit request submitted for admin review.',
+            data: {
+                id: insertRes.insertId,
+                exitReference,
+                holdingId: holding.id,
+                projectId: holding.project_id,
+                projectName: holding.project_name,
+                unitName: holding.unit_name,
+                unitsRequested: reqUnits,
+                pricePerUnit,
+                estimatedValue,
+                status: 'exit_pending',
+                createdAt: new Date()
+            }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Create Exit Request Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to submit demo exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 14. GET /api/land/exits - User's Demo Exit Requests
+// ==========================================
+exports.getUserExitRequests = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized access.' });
+        }
+
+        const [rows] = await db.execute(
+            `SELECT e.*, p.project_name, p.location, p.unit_name
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.user_id = ?
+             ORDER BY e.id DESC`,
+            [userId]
+        );
+
+        return res.status(200).json({
+            success: true,
+            data: rows.map((r) => ({
+                id: r.id,
+                exitReference: r.exit_reference,
+                holdingId: r.holding_id,
+                projectId: r.project_id,
+                projectName: r.project_name,
+                location: r.location,
+                unitName: r.unit_name,
+                unitsRequested: parseFloat(r.units_requested),
+                pricePerUnit: parseFloat(r.price_per_unit),
+                estimatedValue: parseFloat(r.estimated_value),
+                status: r.status,
+                notes: r.notes,
+                rejectionReason: r.rejection_reason,
+                reviewedAt: r.reviewed_at,
+                completedAt: r.completed_at,
+                createdAt: r.created_at
+            }))
+        });
+    } catch (error) {
+        console.error('Get User Exit Requests Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to load exit requests.' });
+    }
+};
+
+// ==========================================
+// 15. GET /api/land/admin/exits - Admin List Exit Requests
+// ==========================================
+exports.getAdminExitRequests = async (req, res) => {
+    try {
+        if (!req.admin?.adminId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized admin access.' });
+        }
+
+        const statusFilter = req.query?.status;
+        let query = `
+            SELECT e.*, p.project_name, p.location, p.unit_name,
+                   u.full_name AS user_name, u.email AS user_email, u.phone AS user_phone
+            FROM land_exit_requests e
+            JOIN land_projects p ON e.project_id = p.id
+            JOIN users u ON e.user_id = u.id
+        `;
+        const params = [];
+        if (statusFilter && statusFilter !== 'all') {
+            query += ` WHERE e.status = ?`;
+            params.push(statusFilter);
+        }
+        query += ` ORDER BY e.id DESC`;
+
+        const [rows] = await db.execute(query, params);
+        const [counts] = await db.execute(`
+            SELECT
+                COUNT(*) AS totalExits,
+                SUM(CASE WHEN status = 'exit_pending' THEN 1 ELSE 0 END) AS pendingExits,
+                SUM(CASE WHEN status = 'exit_approved' THEN 1 ELSE 0 END) AS approvedExits,
+                SUM(CASE WHEN status = 'exit_completed' THEN 1 ELSE 0 END) AS completedExits,
+                SUM(CASE WHEN status = 'exit_rejected' THEN 1 ELSE 0 END) AS rejectedExits
+            FROM land_exit_requests
+        `);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                summary: counts[0] || {},
+                exits: rows.map((r) => ({
+                    id: r.id,
+                    exitReference: r.exit_reference,
+                    holdingId: r.holding_id,
+                    projectId: r.project_id,
+                    projectName: r.project_name,
+                    location: r.location,
+                    unitName: r.unit_name,
+                    userId: r.user_id,
+                    userName: r.user_name,
+                    userEmail: r.user_email,
+                    userPhone: r.user_phone,
+                    unitsRequested: parseFloat(r.units_requested),
+                    pricePerUnit: parseFloat(r.price_per_unit),
+                    estimatedValue: parseFloat(r.estimated_value),
+                    status: r.status,
+                    notes: r.notes,
+                    rejectionReason: r.rejection_reason,
+                    reviewedAt: r.reviewed_at,
+                    completedAt: r.completed_at,
+                    createdAt: r.created_at
+                }))
+            }
+        });
+    } catch (error) {
+        console.error('Get Admin Exit Requests Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to load exit requests.' });
+    }
+};
+
+// ==========================================
+// 16. POST /api/land/admin/exits/:id/approve
+// ==========================================
+exports.approveExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const adminId = req.admin?.adminId;
+        const exitId = parseInt(req.params.id, 10);
+        if (!adminId || !exitId) {
+            return res.status(400).json({ success: false, message: 'Invalid request.' });
+        }
+
+        await conn.beginTransaction();
+        const [rows] = await conn.query(
+            `SELECT e.*, p.project_name, p.unit_name
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.id = ? FOR UPDATE`,
+            [exitId]
+        );
+
+        if (rows.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Exit request not found.' });
+        }
+
+        const exitReq = rows[0];
+        if (exitReq.status !== 'exit_pending') {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Cannot approve exit request because current status is '${exitReq.status}'.`
+            });
+        }
+
+        await conn.query(
+            `UPDATE land_exit_requests SET status = 'exit_approved', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
+            [adminId, exitId]
+        );
+
+        await NotificationService.notify({
+            userId: exitReq.user_id,
+            title: 'Demo Exit Request Approved',
+            message: `Your demo exit request ${exitReq.exit_reference} for ${parseFloat(exitReq.units_requested)} ${exitReq.unit_name} in ${exitReq.project_name} has been approved by admin.`,
+            category: 'digital_land',
+            type: 'success',
+            referenceId: exitId,
+            referenceType: 'LAND_EXIT_APPROVED',
+            notificationType: 'LAND_EXIT_APPROVED',
+            conn
+        });
+
+        await conn.commit();
+        return res.status(200).json({
+            success: true,
+            message: `Exit request ${exitReq.exit_reference} approved.`,
+            data: { id: exitId, status: 'exit_approved' }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Approve Exit Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to approve exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 17. POST /api/land/admin/exits/:id/reject
+// ==========================================
+exports.rejectExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const adminId = req.admin?.adminId;
+        const exitId = parseInt(req.params.id, 10);
+        const reason = String(req.body?.reason || '').trim().slice(0, 255);
+
+        if (!adminId || !exitId) {
+            return res.status(400).json({ success: false, message: 'Invalid request.' });
+        }
+        if (!reason) {
+            return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
+        }
+
+        await conn.beginTransaction();
+        const [rows] = await conn.query(
+            `SELECT e.*, p.project_name, p.unit_name
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.id = ? FOR UPDATE`,
+            [exitId]
+        );
+
+        if (rows.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Exit request not found.' });
+        }
+
+        const exitReq = rows[0];
+        if (exitReq.status !== 'exit_pending') {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Cannot reject exit request because current status is '${exitReq.status}'.`
+            });
+        }
+
+        await conn.query(
+            `UPDATE land_exit_requests SET status = 'exit_rejected', rejection_reason = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
+            [reason, adminId, exitId]
+        );
+
+        await conn.query(
+            `UPDATE land_transactions SET status = 'rejected', description = ? WHERE order_reference = ?`,
+            [`Demo exit ${exitReq.exit_reference} rejected: ${reason}`, exitReq.exit_reference]
+        );
+
+        await NotificationService.notify({
+            userId: exitReq.user_id,
+            title: 'Demo Exit Request Rejected',
+            message: `Your demo exit request ${exitReq.exit_reference} for ${exitReq.project_name} was rejected.\nRejection Reason: ${reason}`,
+            category: 'digital_land',
+            type: 'error',
+            referenceId: exitId,
+            referenceType: 'LAND_EXIT_REJECTED',
+            notificationType: 'LAND_EXIT_REJECTED',
+            conn
+        });
+
+        await conn.commit();
+        return res.status(200).json({
+            success: true,
+            message: `Exit request ${exitReq.exit_reference} rejected.`,
+            data: { id: exitId, status: 'exit_rejected', rejectionReason: reason }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Reject Exit Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to reject exit request.' });
+    } finally {
+        conn.release();
+    }
+};
+
+// ==========================================
+// 18. POST /api/land/admin/exits/:id/complete
+// ==========================================
+exports.completeExitRequest = async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const adminId = req.admin?.adminId;
+        const exitId = parseInt(req.params.id, 10);
+        if (!adminId || !exitId) {
+            return res.status(400).json({ success: false, message: 'Invalid request.' });
+        }
+
+        await conn.beginTransaction();
+        const [rows] = await conn.query(
+            `SELECT e.*, p.project_name, p.unit_name, p.total_units, p.available_units
+             FROM land_exit_requests e
+             JOIN land_projects p ON e.project_id = p.id
+             WHERE e.id = ? FOR UPDATE`,
+            [exitId]
+        );
+
+        if (rows.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Exit request not found.' });
+        }
+
+        const exitReq = rows[0];
+        if (exitReq.status !== 'exit_approved') {
+            await conn.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Exit request must be 'exit_approved' before completion (current: '${exitReq.status}').`
+            });
+        }
+
+        const [holdings] = await conn.query(
+            `SELECT id, units_owned, total_invested FROM land_holdings WHERE id = ? FOR UPDATE`,
+            [exitReq.holding_id]
+        );
+        if (holdings.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ success: false, message: 'Associated holding not found.' });
+        }
+
+        const holding = holdings[0];
+        const reqUnits = parseFloat(exitReq.units_requested);
+        const ownedUnits = parseFloat(holding.units_owned);
+        if (reqUnits > ownedUnits) {
+            await conn.rollback();
+            return res.status(400).json({ success: false, message: 'Requested exit units exceed current holding units.' });
+        }
+
+        const newUnitsOwned = toDecimal(ownedUnits - reqUnits);
+        const ratioRemaining = ownedUnits > 0 ? newUnitsOwned / ownedUnits : 0;
+        const newTotalInvested = toDecimal((parseFloat(holding.total_invested) || 0) * ratioRemaining);
+        const newHoldingStatus = newUnitsOwned <= 0 ? 'exited' : 'active';
+
+        await conn.query(
+            `UPDATE land_holdings SET units_owned = ?, total_invested = ?, status = ?, updated_at = NOW() WHERE id = ?`,
+            [newUnitsOwned, newTotalInvested, newHoldingStatus, holding.id]
+        );
+
+        // Restore available units to project inventory
+        await conn.query(
+            `UPDATE land_projects SET available_units = LEAST(total_units, available_units + ?) WHERE id = ?`,
+            [reqUnits, exitReq.project_id]
+        );
+
+        await conn.query(
+            `UPDATE land_exit_requests SET status = 'exit_completed', completed_at = NOW() WHERE id = ?`,
+            [exitId]
+        );
+
+        await conn.query(
+            `UPDATE land_transactions SET status = 'completed', description = ? WHERE order_reference = ?`,
+            [`Demo exit ${exitReq.exit_reference} completed (no real payout executed)`, exitReq.exit_reference]
+        );
+
+        await NotificationService.notify({
+            userId: exitReq.user_id,
+            title: 'Demo Exit Completed',
+            message: `Demo exit ${exitReq.exit_reference} for ${reqUnits} ${exitReq.unit_name} in ${exitReq.project_name} is marked completed. (Demo mode — no real payout executed).`,
+            category: 'digital_land',
+            type: 'success',
+            referenceId: exitId,
+            referenceType: 'LAND_EXIT_COMPLETED',
+            notificationType: 'LAND_EXIT_COMPLETED',
+            conn
+        });
+
+        await conn.commit();
+        return res.status(200).json({
+            success: true,
+            message: `Demo exit ${exitReq.exit_reference} completed.`,
+            data: { id: exitId, status: 'exit_completed', remainingHoldingUnits: newUnitsOwned }
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error('Complete Exit Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to complete exit request.' });
     } finally {
         conn.release();
     }

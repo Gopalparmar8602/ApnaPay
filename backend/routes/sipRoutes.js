@@ -17,8 +17,14 @@ const {
     getTransactions,
     createOneTimeInvestment,
     getUserInvestmentOrders,
-    getInvestmentOrderDetails
+    getInvestmentOrderDetails,
+    getInvestmentAccount,
+    setupInvestmentAccount
 } = require("../controllers/sipController");
+
+// Investment Account (PAN / Mutual Fund KYC)
+router.get("/investment-account", authMiddleware, getInvestmentAccount);
+router.post("/investment-account", authMiddleware, setupInvestmentAccount);
 
 // Products (Public)
 router.get("/products", getProducts);

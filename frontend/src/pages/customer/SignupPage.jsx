@@ -33,9 +33,17 @@ const SignupPage = () => {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+    let nextValue = type === 'checkbox' ? checked : value;
+
+    if (name === 'fullName') {
+      nextValue = String(value).replace(/[^a-zA-Z\s]/g, '');
+    } else if (name === 'phone') {
+      nextValue = String(value).replace(/\D/g, '').slice(0, 10);
+    }
+
     setFormData((prev) => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: nextValue
     }));
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: '' }));
@@ -45,8 +53,9 @@ const SignupPage = () => {
 
   const validate = () => {
     const errs = {};
-    if (!formData.fullName.trim() || formData.fullName.trim().length < 2) {
-      errs.fullName = 'Full name must be at least 2 characters.';
+    const cleanName = formData.fullName.trim();
+    if (!cleanName || cleanName.length < 2 || !/^[a-zA-Z\s]+$/.test(cleanName)) {
+      errs.fullName = 'Full name must contain letters only (no numbers).';
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

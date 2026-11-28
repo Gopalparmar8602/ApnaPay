@@ -51,5 +51,16 @@ router.put('/admin/orders/:id/approve', adminAuthMiddleware, landController.appr
 router.post('/admin/orders/:id/reject', adminAuthMiddleware, landController.rejectOrder);
 router.put('/admin/orders/:id/reject', adminAuthMiddleware, landController.rejectOrder);
 
+// ==========================================
+// DEMO EXIT REQUEST ROUTES
+// ==========================================
+router.post('/exits', authMiddleware, landController.createExitRequest);
+router.get('/exits', authMiddleware, landController.getUserExitRequests);
+
+router.get('/admin/exits', adminAuthMiddleware, landController.getAdminExitRequests);
+router.post('/admin/exits/:id/approve', adminAuthMiddleware, landController.approveExitRequest);
+router.post('/admin/exits/:id/reject', adminAuthMiddleware, landController.rejectExitRequest);
+router.post('/admin/exits/:id/complete', adminAuthMiddleware, landController.completeExitRequest);
+
 module.exports = router;
 

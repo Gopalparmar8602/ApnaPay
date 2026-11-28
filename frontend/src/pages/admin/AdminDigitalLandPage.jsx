@@ -41,9 +41,18 @@ const AdminDigitalLandPage = () => {
   });
 
   // Filters & Search
+  const [viewMode, setViewMode] = useState('orders'); // 'orders' | 'exits'
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected'
   const [searchTerm, setSearchTerm] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Exit Requests states
+  const [exitRequests, setExitRequests] = useState([]);
+  const [exitCounts, setExitCounts] = useState({ totalExits: 0, pendingExits: 0, approvedExits: 0, completedExits: 0, rejectedExits: 0 });
+  const [exitStatusFilter, setExitStatusFilter] = useState('all');
+  const [exitLoading, setExitLoading] = useState(false);
+  const [exitRejectModal, setExitRejectModal] = useState(null);
+  const [exitRejectReason, setExitRejectReason] = useState('');
 
   // Loading & Alert states
   const [loading, setLoading] = useState(true);
@@ -64,6 +73,70 @@ const AdminDigitalLandPage = () => {
     setTimeout(() => {
       setFeedback((prev) => (prev.message === message ? { type: '', message: '' } : prev));
     }, 6000);
+  };
+
+  const loadExitRequests = async (status = exitStatusFilter) => {
+    setExitLoading(true);
+    try {
+      const res = await landService.getAdminExitRequests({ status });
+      setExitRequests(res?.data?.exits || []);
+      setExitCounts(res?.data?.summary || { totalExits: 0, pendingExits: 0, approvedExits: 0, completedExits: 0, rejectedExits: 0 });
+    } catch (err) {
+      showToast('error', err?.response?.data?.message || 'Failed to load exit requests.');
+    } finally {
+      setExitLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadExitRequests(exitStatusFilter);
+  }, [viewMode, exitStatusFilter]);
+
+  const handleApproveExit = async (exitId) => {
+    if (actionLoading) return;
+    setActionLoading(true);
+    try {
+      const res = await landService.approveExitRequest(exitId);
+      showToast('success', res?.message || 'Exit request approved.');
+      await loadExitRequests(exitStatusFilter);
+    } catch (err) {
+      showToast('error', err?.response?.data?.message || 'Failed to approve exit request.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCompleteExit = async (exitId) => {
+    if (actionLoading) return;
+    setActionLoading(true);
+    try {
+      const res = await landService.completeExitRequest(exitId);
+      showToast('success', res?.message || 'Demo exit marked completed.');
+      await loadExitRequests(exitStatusFilter);
+    } catch (err) {
+      showToast('error', err?.response?.data?.message || 'Failed to complete exit request.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleConfirmRejectExit = async (e) => {
+    e.preventDefault();
+    if (!exitRejectModal || actionLoading) return;
+    const reason = exitRejectReason.trim();
+    if (!reason) return;
+    setActionLoading(true);
+    try {
+      const res = await landService.rejectExitRequest(exitRejectModal.id, reason);
+      showToast('success', res?.message || 'Exit request rejected.');
+      setExitRejectModal(null);
+      setExitRejectReason('');
+      await loadExitRequests(exitStatusFilter);
+    } catch (err) {
+      showToast('error', err?.response?.data?.message || 'Failed to reject exit request.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   // Lock body scroll when any modal is open
@@ -347,6 +420,182 @@ const AdminDigitalLandPage = () => {
         </div>
       )}
 
+      {/* Top Mode Switcher: Purchase Orders vs Demo Exit Requests */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={() => setViewMode('orders')}
+          style={{
+            padding: '8px 16px',
+            borderRadius: '10px',
+            border: viewMode === 'orders' ? '1px solid #00D5FF' : '1px solid #17385D',
+            background: viewMode === 'orders' ? 'rgba(0, 168, 255, 0.16)' : '#071426',
+            color: viewMode === 'orders' ? '#00D5FF' : '#A9BDD7',
+            fontSize: '13px',
+            fontWeight: '700',
+            cursor: 'pointer'
+          }}
+        >
+          Land Purchase Orders ({counts.totalOrders || 0})
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode('exits')}
+          style={{
+            padding: '8px 16px',
+            borderRadius: '10px',
+            border: viewMode === 'exits' ? '1px solid #F59E0B' : '1px solid #17385D',
+            background: viewMode === 'exits' ? 'rgba(245, 158, 11, 0.16)' : '#071426',
+            color: viewMode === 'exits' ? '#F59E0B' : '#A9BDD7',
+            fontSize: '13px',
+            fontWeight: '700',
+            cursor: 'pointer'
+          }}
+        >
+          Demo Exit Requests ({exitCounts.totalExits || 0})
+        </button>
+      </div>
+
+      {viewMode === 'exits' ? (
+        <div className="dashboard-card">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#FFFFFF', margin: 0 }}>
+                Demo Exit Requests Review
+              </h3>
+              <p style={{ fontSize: '12px', color: '#A9BDD7', margin: '2px 0 0' }}>
+                Approve, reject, or mark demo exit requests completed (no real payouts executed).
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {['all', 'exit_pending', 'exit_approved', 'exit_completed', 'exit_rejected'].map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setExitStatusFilter(st)}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '999px',
+                    border: exitStatusFilter === st ? '1px solid #00D5FF' : '1px solid #17385D',
+                    background: exitStatusFilter === st ? 'rgba(0, 213, 255, 0.14)' : '#071426',
+                    color: exitStatusFilter === st ? '#00D5FF' : '#A9BDD7',
+                    fontSize: '11.5px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {st === 'all' ? 'All' : st.replace('exit_', '').toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {exitLoading ? (
+            <div style={{ textAlign: 'center', padding: '36px', color: '#A9BDD7' }}>Loading exit requests...</div>
+          ) : exitRequests.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '36px', background: '#071426', borderRadius: '10px', border: '1px dashed #17385D', color: '#A9BDD7' }}>
+              No demo exit requests found for this filter.
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #17385D', color: '#A9BDD7', textTransform: 'uppercase', fontSize: '11px' }}>
+                    <th style={{ padding: '12px' }}>Exit Ref</th>
+                    <th style={{ padding: '12px' }}>Customer</th>
+                    <th style={{ padding: '12px' }}>Project</th>
+                    <th style={{ padding: '12px' }}>Units</th>
+                    <th style={{ padding: '12px', textAlign: 'right' }}>Est. Value</th>
+                    <th style={{ padding: '12px' }}>Status</th>
+                    <th style={{ padding: '12px', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {exitRequests.map((ex) => (
+                    <tr key={ex.id} style={{ borderBottom: '1px solid rgba(35, 55, 80, 0.4)' }}>
+                      <td style={{ padding: '12px', color: '#00D5FF', fontFamily: 'monospace', fontWeight: '700' }}>{ex.exitReference}</td>
+                      <td style={{ padding: '12px', color: '#FFFFFF' }}>
+                        <div style={{ fontWeight: '600' }}>{ex.userName}</div>
+                        <div style={{ fontSize: '11px', color: '#6B87A8' }}>{ex.userEmail}</div>
+                      </td>
+                      <td style={{ padding: '12px', color: '#A9BDD7' }}>{ex.projectName}</td>
+                      <td style={{ padding: '12px', color: '#FFFFFF' }}>{ex.unitsRequested} {ex.unitName}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#10B981', fontWeight: '700' }}>{formatINR(ex.estimatedValue)}</td>
+                      <td style={{ padding: '12px' }}>{getStatusBadge(ex.status.replace('exit_', ''))}</td>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>
+                        {ex.status === 'exit_pending' && (
+                          <div style={{ display: 'inline-flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              disabled={actionLoading}
+                              onClick={() => handleApproveExit(ex.id)}
+                              style={{ padding: '5px 10px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.16)', border: '1px solid #10B981', color: '#10B981', fontSize: '11.5px', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={actionLoading}
+                              onClick={() => { setExitRejectModal(ex); setExitRejectReason(''); }}
+                              style={{ padding: '5px 10px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.16)', border: '1px solid #EF4444', color: '#EF4444', fontSize: '11.5px', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                        {ex.status === 'exit_approved' && (
+                          <button
+                            type="button"
+                            disabled={actionLoading}
+                            onClick={() => handleCompleteExit(ex.id)}
+                            style={{ padding: '5px 10px', borderRadius: '6px', background: 'rgba(0, 168, 255, 0.16)', border: '1px solid #00A8FF', color: '#00D5FF', fontSize: '11.5px', fontWeight: '700', cursor: 'pointer' }}
+                          >
+                            Complete Exit
+                          </button>
+                        )}
+                        {(ex.status === 'exit_completed' || ex.status === 'exit_rejected') && (
+                          <span style={{ fontSize: '11px', color: '#6B87A8' }}>{ex.rejectionReason || 'Closed'}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {exitRejectModal && (
+            <div className="admin-land-modal-overlay" onClick={() => setExitRejectModal(null)}>
+              <div className="admin-land-modal-container" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
+                <div className="admin-land-modal-header">
+                  <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#FFFFFF', margin: 0 }}>Reject Demo Exit Request</h3>
+                  <button type="button" onClick={() => setExitRejectModal(null)} className="admin-land-modal-close-btn"><XIcon size={16} /></button>
+                </div>
+                <form onSubmit={handleConfirmRejectExit}>
+                  <div className="admin-land-modal-body">
+                    <p style={{ fontSize: '13px', color: '#A9BDD7', marginBottom: '10px' }}>
+                      Provide a rejection reason for <strong style={{ color: '#00D5FF' }}>{exitRejectModal.exitReference}</strong>:
+                    </p>
+                    <input
+                      type="text"
+                      required
+                      value={exitRejectReason}
+                      onChange={(e) => setExitRejectReason(e.target.value)}
+                      className="auth-input"
+                      placeholder="e.g. Lock-in period active"
+                    />
+                  </div>
+                  <div className="admin-land-modal-footer">
+                    <button type="button" onClick={() => setExitRejectModal(null)} className="auth-button secondary" style={{ width: 'auto', padding: '0 14px', height: '36px', fontSize: '12.5px', margin: 0 }}>Cancel</button>
+                    <button type="submit" disabled={actionLoading} className="auth-button" style={{ width: 'auto', padding: '0 16px', height: '36px', fontSize: '12.5px', margin: 0, background: '#EF4444' }}>Confirm Reject</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       {/* ========================================================= */}
       {/* 1. REAL-TIME DASHBOARD COUNTERS                           */}
       {/* ========================================================= */}
@@ -1441,6 +1690,8 @@ const AdminDigitalLandPage = () => {
           </div>
         </div>,
         document.body
+      )}
+      </>
       )}
     </AdminDashboardLayout>
   );

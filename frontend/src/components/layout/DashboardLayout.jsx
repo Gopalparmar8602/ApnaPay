@@ -89,20 +89,6 @@ const DashboardLayout = ({
       icon: WalletIcon
     },
     {
-      to: '/app/transfers',
-      label: 'Money Transfers',
-      icon: SendIcon,
-      badge: 'P2P',
-      badgeColor: 'blue'
-    },
-    {
-      to: '/app/payments',
-      label: 'Payments',
-      icon: CreditCardIcon,
-      badge: 'PG',
-      badgeColor: 'blue'
-    },
-    {
       to: '/app/banks',
       label: 'Bank Accounts',
       icon: BankIcon
@@ -111,13 +97,6 @@ const DashboardLayout = ({
       to: '/app/upi',
       label: 'UPI Services',
       icon: ShieldIcon
-    },
-    {
-      to: '/app/qr',
-      label: 'QR Payments',
-      icon: QrCodeIcon,
-      badge: 'QR',
-      badgeColor: 'blue'
     },
     {
       to: '/app/recharge',
@@ -172,9 +151,6 @@ const DashboardLayout = ({
   ];
 
   const searchableServices = [
-    { title: 'Money Transfers', path: '/app/transfers', desc: 'Instant 24x7 P2P & IMPS bank remittances' },
-    { title: 'Payments Gateway', path: '/app/payments', desc: 'Online checkout & merchant transactions' },
-    { title: 'QR Payments', path: '/app/qr', desc: 'Generate Bharat UPI QR codes & payment requests' },
     { title: 'Mobile Recharge', path: '/app/recharge', desc: 'Prepaid & postpaid plans across Jio, Airtel, Vi, BSNL' },
     { title: 'SIP & Wealth', path: '/app/sip', desc: 'Micro SIP plans starting from ₹10/day & mutual funds' },
     { title: 'Dispute & Refunds', path: '/app/disputes', desc: '24-hour grievance SLA, track disputes & refunds' },

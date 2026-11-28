@@ -67,7 +67,7 @@ exports.getLinkedAccounts = async (req, res) => {
         }
 
         const statusFilter = req.query?.status;
-        let query = `SELECT id, bank_name, account_last4, ifsc_code, account_holder_name, is_primary, status, created_at
+        let query = `SELECT id, bank_name, account_last4, ifsc_code, account_holder_name, is_primary, status, (upi_pin_hash IS NOT NULL) AS has_upi_pin, created_at
              FROM bank_accounts
              WHERE user_id = ?`;
         const params = [userId];
@@ -94,6 +94,7 @@ exports.getLinkedAccounts = async (req, res) => {
             accountHolderName: r.account_holder_name,
             isPrimary: Boolean(r.is_primary),
             status: r.status,
+            hasUpiPin: Boolean(r.has_upi_pin),
             createdAt: r.created_at
         }));
 
@@ -1025,5 +1026,133 @@ exports.setPrimaryAccount = async (req, res) => {
             success: false,
             message: 'Failed to update primary bank account.'
         });
+    }
+};
+
+// ==========================================
+// 7. POST /bank-accounts/:id/upi-pin - Set / Update UPI PIN
+// ==========================================
+exports.setUpiPin = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const accountId = req.params?.id;
+        const upiPin = String(req.body?.upiPin || '').trim();
+
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Authentication required.' });
+        }
+
+        if (!/^\d{4}$|^\d{6}$/.test(upiPin)) {
+            return res.status(400).json({ success: false, message: 'UPI PIN must be 4 or 6 digits.' });
+        }
+
+        const [rows] = await db.execute(
+            `SELECT id, bank_name, account_last4 FROM bank_accounts
+             WHERE id = ? AND user_id = ? AND status IN ('active', 'verified', 'demo_verified')
+             LIMIT 1`,
+            [accountId, userId]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Active bank account not found.' });
+        }
+
+        const pinHash = await bcrypt.hash(upiPin, 10);
+        await db.execute(
+            `UPDATE bank_accounts SET upi_pin_hash = ? WHERE id = ? AND user_id = ?`,
+            [pinHash, accountId, userId]
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: `UPI PIN set for ${rows[0].bank_name} (••••${rows[0].account_last4}).`,
+            data: { id: Number(accountId), hasUpiPin: true }
+        });
+    } catch (error) {
+        console.error('Set UPI PIN Error:', error.message);
+        return res.status(500).json({ success: false, message: 'Failed to set UPI PIN.' });
+    }
+};
+
+// ==========================================
+// 8. POST /bank-accounts/:id/check-balance - Verify UPI PIN & Fetch DB Balance
+// ==========================================
+exports.checkBalance = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const accountId = req.params?.id;
+        const upiPin = String(req.body?.upiPin || '').trim();
+        const setupPin = Boolean(req.body?.setupPin);
+
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Authentication required.' });
+        }
+
+        if (!/^\d{4}$|^\d{6}$/.test(upiPin)) {
+            return res.status(400).json({ success: false, message: 'Please enter a valid 4 or 6-digit UPI PIN.' });
+        }
+
+        const [rows] = await db.execute(
+            `SELECT id, bank_name, account_last4, balance, upi_pin_hash, is_primary
+             FROM bank_accounts
+             WHERE id = ? AND user_id = ? AND status IN ('active', 'verified', 'demo_verified')
+             LIMIT 1`,
+            [accountId, userId]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Active bank account not found.' });
+        }
+
+        const acct = rows[0];
+
+        if (!acct.upi_pin_hash) {
+            if (!setupPin) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'PIN_NOT_SET',
+                    message: 'UPI PIN is not set for this bank account yet.'
+                });
+            }
+            const pinHash = await bcrypt.hash(upiPin, 10);
+            await db.execute(
+                `UPDATE bank_accounts SET upi_pin_hash = ? WHERE id = ? AND user_id = ?`,
+                [pinHash, accountId, userId]
+            );
+        } else {
+            const isValid = await bcrypt.compare(upiPin, acct.upi_pin_hash);
+            if (!isValid) {
+                return res.status(401).json({
+                    success: false,
+                    code: 'INVALID_PIN',
+                    message: 'Incorrect UPI PIN. Please try again.'
+                });
+            }
+        }
+
+        const numericBalance = Number(acct.balance ?? 0);
+        const formattedBalance = new Intl.NumberFormat('en-IN', {
+            style: 'currency',
+            currency: 'INR',
+            minimumFractionDigits: 2
+        }).format(numericBalance);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Bank account balance fetched successfully.',
+            data: {
+                id: acct.id,
+                bankName: acct.bank_name,
+                accountLast4: acct.account_last4,
+                isPrimary: Boolean(acct.is_primary),
+                balance: numericBalance,
+                formattedBalance,
+                hasUpiPin: true,
+                checkedAt: new Date().toISOString()
+            }
+        });
+    } catch (error) {
+        console.error('Check Bank Balance Error:', error.message);
+        return res.status(500).json({ success: false, message: 'Unable to fetch bank account balance.' });
     }
 };

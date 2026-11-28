@@ -380,3 +380,54 @@ exports.deleteUpiHandle = async (req, res) => {
     }
 };
 
+// ==========================================
+// 4. PATCH /upi/handles/:id/primary - Set Default UPI Handle
+// ==========================================
+exports.setPrimaryUpiHandle = async (req, res) => {
+    let connection;
+    try {
+        const userId = req.user?.userId;
+        const handleId = Number(req.params.id);
+
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized access.' });
+        }
+
+        if (!Number.isInteger(handleId) || handleId <= 0) {
+            return res.status(400).json({ success: false, message: 'Valid UPI handle ID is required.' });
+        }
+
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const [rows] = await connection.execute(
+            `SELECT id, upi_id, status FROM upi_handles
+             WHERE id = ? AND user_id = ? AND status = 'active'
+             LIMIT 1 FOR UPDATE`,
+            [handleId, userId]
+        );
+
+        if (rows.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'Active UPI handle not found.' });
+        }
+
+        await connection.execute(`UPDATE upi_handles SET is_primary = 0 WHERE user_id = ?`, [userId]);
+        await connection.execute(`UPDATE upi_handles SET is_primary = 1 WHERE id = ? AND user_id = ?`, [handleId, userId]);
+
+        await connection.commit();
+
+        return res.status(200).json({
+            success: true,
+            message: `${rows[0].upi_id} is now your default UPI ID.`,
+            data: { id: handleId, upiId: rows[0].upi_id, isPrimary: true }
+        });
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Set Primary UPI Handle Error:', error.message);
+        return res.status(500).json({ success: false, message: 'Unable to update default UPI ID.' });
+    } finally {
+        if (connection) connection.release();
+    }
+};
+

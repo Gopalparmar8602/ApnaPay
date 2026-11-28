@@ -49,6 +49,18 @@ const bankAccountService = {
   setPrimaryAccount: async (id) => {
     const res = await api.patch(`/bank-accounts/${id}/primary`);
     return res.data;
+  },
+
+  // 7. POST /bank-accounts/:id/upi-pin - Set / update UPI PIN
+  setUpiPin: async (id, upiPin) => {
+    const res = await api.post(`/bank-accounts/${id}/upi-pin`, { upiPin });
+    return res.data;
+  },
+
+  // 8. POST /bank-accounts/:id/check-balance - Verify UPI PIN & fetch bank balance
+  checkBalance: async (id, upiPin, setupPin = false) => {
+    const res = await api.post(`/bank-accounts/${id}/check-balance`, { upiPin, setupPin });
+    return res.data;
   }
 };
 

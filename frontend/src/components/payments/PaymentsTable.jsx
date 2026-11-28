@@ -294,7 +294,7 @@ export default function PaymentsTable({
         {/* Row 1: Search & Status Pills */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center" }}>
           {/* Search Box */}
-          <div className="search-box" style={{ flex: 1, minWidth: "260px" }}>
+          <div className="search-box" style={{ flex: "1 1 220px", minWidth: "min(100%, 220px)" }}>
             <Search size={16} />
             <input
               type="text"

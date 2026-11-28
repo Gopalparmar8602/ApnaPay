@@ -1218,15 +1218,14 @@ button.sidebar-link.active svg {
 .back-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 12px;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   background: #071426;
   border: 1px solid #17385D;
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   color: #FFFFFF;
-  font-size: 13px;
-  font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-fast);
   flex-shrink: 0;
@@ -5884,7 +5883,7 @@ button.sidebar-link.active svg {
   letter-spacing: 0.5px;
 }
 
-.form-group input,
+.form-group input:not(.form-input),
 .form-group select,
 .form-group textarea {
   background: #071426;
@@ -5898,6 +5897,14 @@ button.sidebar-link.active svg {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
   box-sizing: border-box;
   width: 100%;
+}
+
+.form-group .input-wrapper .form-input:not(.no-left-icon) {
+  padding-left: 44px;
+}
+
+.form-group .input-wrapper .form-input.has-right-icon {
+  padding-right: 44px;
 }
 
 .form-group input:focus,
@@ -6911,7 +6918,6 @@ div[style*="position: fixed"][style*="top: 0"][style*="bottom: 0"] {
 .modal-dialog,
 .modal-content,
 [role="dialog"] > div {
-  max-width: calc(100vw - 24px) !important;
   max-height: calc(90vh - var(--sat, 0px) - var(--sab, 0px)) !important;
   overflow-y: auto !important;
   margin: auto !important;
@@ -7461,6 +7467,144 @@ div[style*="position: fixed"][style*="top: 0"][style*="bottom: 0"] {
 .auth-input option {
   background: #071426;
   color: #FFFFFF;
+}
+
+/* ==========================================================================
+   APNAPAY - GLOBAL RESPONSIVE POLISH (WIDE MONITORS, TABLET & MOBILE)
+   ========================================================================== */
+
+/* Prevent grid/flex children from forcing horizontal page overflow */
+.portal-root,
+.portal-main-area,
+.portal-page-content,
+.dashboard-content,
+.fintech-dashboard-wrapper {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.portal-page-content > *,
+.dashboard-content > *,
+.fintech-dashboard-wrapper > * {
+  min-width: 0;
+}
+
+.dashboard-card svg,
+.fintech-viz-card svg,
+.dashboard-card canvas,
+.fintech-viz-card canvas {
+  max-width: 100%;
+}
+
+/* Responsive 2 & 3 Column Utility Grids */
+.ap-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ap-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* Large Screen / Wide Monitor (>= 1600px) */
+@media (min-width: 1600px) {
+  .portal-page-content,
+  .dashboard-content {
+    max-width: 1440px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* Tablet & Below (<= 1023px) */
+@media (max-width: 1023px) {
+  .dashboard-content {
+    padding: 18px 16px calc(84px + var(--sab)) 16px;
+  }
+
+  .users-table,
+  .custom-table,
+  .bill-breakdown-table {
+    min-width: 640px;
+  }
+}
+
+/* Mobile (<= 639px) */
+@media (max-width: 639px) {
+  .top-search-kbd {
+    display: none !important;
+  }
+
+  .ap-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  .ap-grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+
+  .portal-top-navbar {
+    max-width: 100vw;
+    overflow: visible;
+  }
+
+  .admin-land-modal-overlay,
+  .modal-overlay {
+    padding: 10px !important;
+  }
+
+  .admin-land-modal-container,
+  .modal-content,
+  .bank-link-modal-card {
+    width: 100% !important;
+    max-width: calc(100vw - 20px) !important;
+    max-height: 90dvh !important;
+    overflow-y: auto !important;
+  }
+
+  .auth-card {
+    padding: 24px 18px !important;
+    max-width: calc(100vw - 24px) !important;
+  }
+}
+
+/* ==========================================================================
+   UPI Services Responsive Layout
+   ========================================================================== */
+.upi-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.upi-main-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+@media (max-width: 1180px) {
+  .upi-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1023px) {
+  .upi-main-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .upi-summary-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
 }
 
 
